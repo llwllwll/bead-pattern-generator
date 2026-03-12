@@ -1,0 +1,62 @@
+.paletteSection {
+  margin-bottom: var(--spacing-lg);
+}
+
+.paletteGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(24px, 1fr));
+  gap: var(--spacing-xs);
+  max-height: 160px;
+  overflow: auto;
+  border-radius: var(--border-radius);
+  padding: var(--spacing-sm);
+  background-color: rgba(0, 0, 0, 0.04);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.paletteCell {
+  width: 100%;
+  padding-bottom: 100%;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.paletteCell:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.paletteCell.selected {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.3);
+}
+
+.paletteHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.paletteTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.paletteActions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.colorInfo {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background-color: rgba(52, 152, 219, 0.05);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+

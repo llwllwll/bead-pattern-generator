@@ -1,0 +1,69 @@
+.container {
+  min-height: 100vh;
+  background: #f0f2f5;
+}
+
+.header {
+  background: #1890ff;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 24px;
+  height: 64px;
+}
+
+.headerTitle {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.logoutButton {
+  color: white;
+  border-color: white;
+}
+
+.sider {
+  background: white;
+  box-shadow: 2px 0 6px rgba(0, 21, 41, 0.35);
+}
+
+.content {
+  padding: 24px;
+  min-height: calc(100vh - 64px);
+}
+
+.loginContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #f0f2f5;
+  padding: 20px;
+}
+
+.loginCard {
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.generateCard {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 48px;
+}
