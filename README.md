@@ -92,11 +92,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 ```
 
-## 管理员账号
-
-- 用户名：`admin`
-- 密码：`admin123`
-
 ## 更新日志
 
 详见 [CHANGELOG.md](./CHANGELOG.md)
