@@ -178,3 +178,53 @@ class Admin(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ColorPalette(Base):
+    """色库表"""
+    __tablename__ = "color_palettes"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)
+    code = Column(String(50), unique=True, nullable=False)  # 唯一标识码
+    description = Column(Text)
+    brand = Column(String(50))  # 品牌，如 Perler, Hama, Artkal
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)  # 是否为默认色板
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    colors = relationship("PaletteColor", back_populates="palette", cascade="all, delete-orphan")
+
+
+class PaletteColor(Base):
+    """色库颜色表"""
+    __tablename__ = "palette_colors"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    palette_id = Column(UUID(as_uuid=True), ForeignKey("color_palettes.id", ondelete="CASCADE"), nullable=False)
+    
+    # 颜色编号，如 "A1", "B12", "H7"
+    color_code = Column(String(10), nullable=False)
+    name = Column(String(100))
+    hex = Column(String(7), nullable=False)  # #RRGGBB
+    
+    # 颜色属性
+    is_transparent = Column(Boolean, default=False)
+    is_glow = Column(Boolean, default=False)
+    is_metallic = Column(Boolean, default=False)
+    
+    display_order = Column(Integer, default=0)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    palette = relationship("ColorPalette", back_populates="colors")
+    
+    # 联合唯一约束：同一色板内颜色编号唯一
+    __table_args__ = (
+        Index('idx_palette_color_code', 'palette_id', 'color_code', unique=True),
+    )

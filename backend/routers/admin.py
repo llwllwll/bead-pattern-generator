@@ -13,7 +13,7 @@ from models import User, ActivationCode, Admin, UsageRecord
 from schemas import (
     AdminCreate, AdminLogin, AdminResponse, Token,
     ActivationCodeCreate, ActivationCodeResponse,
-    CreditUpdate, MessageResponse
+    CreditUpdate, MessageResponse, UserCreate, UserResponse
 )
 from auth import (
     verify_password, get_password_hash, create_access_token,
@@ -236,6 +236,46 @@ async def list_users(
         "limit": limit,
         "pages": (total + limit - 1) // limit
     }
+
+
+@router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    user_data: UserCreate,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new user (admin only)"""
+    # Check if user already exists
+    result = await db.execute(
+        select(User).where(
+            (User.username == user_data.username) | (User.phone == user_data.phone)
+        )
+    )
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User with this username or phone already exists"
+        )
+
+    # Create new user
+    new_user = User(
+        username=user_data.username,
+        phone=user_data.phone,
+        password_hash=get_password_hash(user_data.password),
+        email=user_data.email,
+        is_active=True,
+        is_verified=True,
+        remaining_credits=10,  # Default credits
+        total_used=0
+    )
+
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+
+    return new_user
 
 
 @router.put("/users/{user_id}/credits", response_model=MessageResponse)

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from config import settings
 from database import init_db
-from routers import auth, activation, pattern, admin
+from routers import auth, activation, pattern, admin, palette
 
 
 @asynccontextmanager
@@ -47,6 +47,7 @@ app.include_router(auth.router)
 app.include_router(activation.router)
 app.include_router(pattern.router)
 app.include_router(admin.router)
+app.include_router(palette.router)
 
 
 @app.get("/")

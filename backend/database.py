@@ -34,6 +34,8 @@ async def get_db():
 async def init_db():
     """Initialize database tables"""
     async with engine.begin() as conn:
-        # Don't create tables here since they already exist in Neon
-        # await conn.run_sync(Base.metadata.create_all)
-        pass
+        # Create new tables only (color_palettes, palette_colors)
+        # Use checkfirst=True to avoid errors if tables already exist
+        from models import ColorPalette, PaletteColor
+        await conn.run_sync(ColorPalette.__table__.create, checkfirst=True)
+        await conn.run_sync(PaletteColor.__table__.create, checkfirst=True)

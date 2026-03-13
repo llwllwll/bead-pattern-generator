@@ -19,8 +19,15 @@
 }
 
 .logoutButton {
-  color: white;
-  border-color: white;
+  color: white !important;
+  border-color: white !important;
+  background: transparent !important;
+}
+
+.logoutButton:hover {
+  color: #1890ff !important;
+  background: white !important;
+  border-color: white !important;
 }
 
 .sider {
@@ -66,4 +73,36 @@
   justify-content: center;
   align-items: center;
   padding: 48px;
+}
+
+.generateCard :global(.ant-select) {
+  min-width: 120px;
+}
+
+.generateCard :global(.ant-select-selector) {
+  color: #333 !important;
+}
+
+.generateCard :global(.ant-select-selection-item) {
+  color: #333 !important;
+}
+
+.loadingContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #f0f2f5;
+}
+
+.loadingSpinner {
+  text-align: center;
+  padding: 40px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.loadingSpinner :global(.ant-spin) {
+  margin-bottom: 16px;
 }

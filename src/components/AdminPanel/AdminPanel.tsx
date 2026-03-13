@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Layout, Menu, Tabs, Table, Button, Input, Form, Select, message, Modal, Popconfirm, Tag, Badge, DatePicker, Statistic, Row, Col, Progress } from 'antd';
-import { UserOutlined, KeyOutlined, BarChartOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons';
+import { Card, Layout, Menu, Tabs, Table, Button, Input, Form, Select, message, Modal, Popconfirm, Tag, Badge, DatePicker, Statistic, Row, Col, Progress, Spin } from 'antd';
+import { UserOutlined, KeyOutlined, BarChartOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined, ArrowLeftOutlined, BgColorsOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminAPI, authAPI } from '../../services/api';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { PaletteManager } from './PaletteManager';
 import styles from './AdminPanel.module.css';
 
 const { Header, Content, Sider } = Layout;
@@ -62,19 +63,29 @@ const AdminPanel: React.FC = () => {
   const [codeCredits, setCodeCredits] = useState(10);
   const [codeValidity, setCodeValidity] = useState(7);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [addUserModalVisible, setAddUserModalVisible] = useState(false);
+  const [addUserForm] = Form.useForm();
+  const [isInitializing, setIsInitializing] = useState(true);
   
   const { adminToken, adminLogin, adminLogout, isAdmin } = useAuthStore();
 
   // 监听 auth store 的登录状态变化
   useEffect(() => {
-    const loggedIn = !!adminToken || isAdmin;
-    setIsLoggedIn(loggedIn);
-    
-    // 如果登录了，加载数据
-    if (loggedIn) {
-      loadUsers();
-      loadActivationCodes();
-      loadStats();
+    try {
+      const loggedIn = !!adminToken || isAdmin;
+      setIsLoggedIn(loggedIn);
+      
+      // 如果登录了，加载数据
+      if (loggedIn) {
+        loadUsers();
+        loadActivationCodes();
+        loadStats();
+      }
+    } catch (error) {
+      console.error('Admin panel initialization error:', error);
+    } finally {
+      // 初始化完成
+      setIsInitializing(false);
     }
   }, [adminToken, isAdmin]);
 
@@ -111,14 +122,14 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleGenerateCodes = async () => {
+  const handleGenerateCodes = async (values: any) => {
     try {
       setGeneratingCodes(true);
       const response = await adminAPI.generateActivationCodes({
-        count: codeCount,
-        code_type: codeType,
-        credits: codeCredits,
-        validity_days: codeValidity
+        count: values.count || codeCount,
+        code_type: values.type || codeType,
+        credits: values.credits || codeCredits,
+        validity_days: values.validity || codeValidity
       });
       message.success(`成功生成 ${response.data.length} 个激活码`);
       loadActivationCodes();
@@ -174,6 +185,27 @@ const AdminPanel: React.FC = () => {
     } catch (error) {
       message.error('禁用用户失败');
       console.error('Deactivate user error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddUser = async (values: any) => {
+    try {
+      setLoading(true);
+      await adminAPI.createUser({
+        username: values.username,
+        phone: values.phone,
+        password: values.password,
+        email: values.email,
+      });
+      message.success('用户添加成功');
+      setAddUserModalVisible(false);
+      addUserForm.resetFields();
+      loadUsers();
+    } catch (error) {
+      message.error('添加用户失败');
+      console.error('Add user error:', error);
     } finally {
       setLoading(false);
     }
@@ -320,13 +352,37 @@ const AdminPanel: React.FC = () => {
     },
   ];
 
+  if (isInitializing) {
+    return (
+      <div className={styles.loadingContainer}>
+        <div className={styles.loadingSpinner}>
+          <Spin size="large" />
+          <Text style={{ marginTop: 16, display: 'block' }}>加载中...</Text>
+        </div>
+      </div>
+    );
+  }
+
   if (!isLoggedIn) {
     return (
       <div className={styles.loginContainer}>
-        <Card title="管理员登录" className={styles.loginCard}>
+        <Card 
+          title="管理员登录" 
+          className={styles.loginCard}
+          extra={
+            <Button 
+              type="link" 
+              icon={<ArrowLeftOutlined />}
+              onClick={() => window.location.href = '/'}
+            >
+              返回主页
+            </Button>
+          }
+        >
           <Form
             onFinish={async (values) => {
               try {
+                setLoading(true);
                 const success = await adminLogin(values.username, values.password);
                 if (success) {
                   message.success('登录成功');
@@ -336,25 +392,31 @@ const AdminPanel: React.FC = () => {
               } catch (error) {
                 message.error('登录请求失败，请稍后重试');
                 console.error('Login error:', error);
+              } finally {
+                setLoading(false);
               }
             }}
           >
             <Form.Item
               name="username"
               label="用户名"
+              labelCol={{ span: 6 }}
+              wrapperCol={{ span: 18 }}
               rules={[{ required: true, message: '请输入用户名' }]}
             >
-              <Input placeholder="请输入管理员用户名" />
+              <Input placeholder="请输入管理员用户名" style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item
               name="password"
               label="密码"
+              labelCol={{ span: 6 }}
+              wrapperCol={{ span: 18 }}
               rules={[{ required: true, message: '请输入密码' }]}
             >
-              <Input type="password" placeholder="请输入管理员密码" />
+              <Input.Password placeholder="请输入管理员密码" style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item>
-              <Button type="primary" htmlType="submit" block>
+            <Form.Item wrapperCol={{ offset: 6, span: 18 }}>
+              <Button type="primary" htmlType="submit" block loading={loading}>
                 登录
               </Button>
             </Form.Item>
@@ -377,185 +439,223 @@ const AdminPanel: React.FC = () => {
           <Menu
             mode="inline"
             selectedKeys={[activeTab]}
-            onSelect={({ key }) => setActiveTab(key)}
+            onSelect={({ key }) => setActiveTab(key as string)}
             style={{ height: '100%', borderRight: 0 }}
-          >
-            <Menu.Item key="users" icon={<UserOutlined />}>
-              用户管理
-            </Menu.Item>
-            <Menu.Item key="activation" icon={<KeyOutlined />}>
-              激活码管理
-            </Menu.Item>
-            <Menu.Item key="stats" icon={<BarChartOutlined />}>
-              统计信息
-            </Menu.Item>
-          </Menu>
+            items={[
+              {
+                key: 'users',
+                icon: <UserOutlined />,
+                label: '用户管理',
+              },
+              {
+                key: 'activation',
+                icon: <KeyOutlined />,
+                label: '激活码管理',
+              },
+              {
+                key: 'palettes',
+                icon: <BgColorsOutlined />,
+                label: '色库管理',
+              },
+              {
+                key: 'stats',
+                icon: <BarChartOutlined />,
+                label: '统计信息',
+              },
+            ]}
+          />
         </Sider>
         <Content className={styles.content}>
-          <Tabs activeKey={activeTab} onChange={setActiveTab}>
-            <TabPane tab="用户管理" key="users">
-              <Card
-                title="用户列表"
-                extra={
-                  <Button onClick={loadUsers} icon={<ReloadOutlined />}>
-                    刷新
-                  </Button>
-                }
-              >
-                <Table
-                  columns={columns}
-                  dataSource={users}
-                  rowKey="id"
-                  loading={loading}
-                  pagination={{
-                    pageSize: 10,
-                    showSizeChanger: true,
-                    showQuickJumper: true,
-                  }}
-                />
-              </Card>
-            </TabPane>
-            <TabPane tab="激活码管理" key="activation">
-              <Card
-                title="激活码管理"
-                extra={
-                  <Button onClick={loadActivationCodes} icon={<ReloadOutlined />}>
-                    刷新
-                  </Button>
-                }
-              >
-                <Card className={styles.generateCard}>
-                  <h3>生成激活码</h3>
-                  <Form layout="inline" onFinish={handleGenerateCodes}>
-                    <Form.Item
-                      name="count"
-                      label="数量"
-                      rules={[{ required: true, message: '请输入数量' }]}
-                    >
-                      <Input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={codeCount}
-                        onChange={(e) => setCodeCount(Number(e.target.value))}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name="type"
-                      label="类型"
-                      rules={[{ required: true, message: '请选择类型' }]}
-                    >
-                      <Select
-                        value={codeType}
-                        onChange={setCodeType}
-                      >
-                        <Option value="trial">试用</Option>
-                        <Option value="monthly">月卡</Option>
-                        <Option value="yearly">年卡</Option>
-                        <Option value="permanent">永久</Option>
-                      </Select>
-                    </Form.Item>
-                    <Form.Item
-                      name="credits"
-                      label="额度"
-                      rules={[{ required: true, message: '请输入额度' }]}
-                    >
-                      <Input
-                        type="number"
-                        min={1}
-                        value={codeCredits}
-                        onChange={(e) => setCodeCredits(Number(e.target.value))}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name="validity"
-                      label="有效期(天)"
-                      rules={[{ required: true, message: '请输入有效期' }]}
-                    >
-                      <Input
-                        type="number"
-                        min={1}
-                        value={codeValidity}
-                        onChange={(e) => setCodeValidity(Number(e.target.value))}
-                      />
-                    </Form.Item>
-                    <Form.Item>
-                      <Button 
-                        type="primary" 
-                        htmlType="submit"
-                        loading={generatingCodes}
-                      >
-                        生成
+          <Tabs
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            items={[
+              {
+                key: 'users',
+                label: '用户管理',
+                children: (
+                  <Card
+                    title="用户列表"
+                    extra={
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddUserModalVisible(true)}>
+                          添加用户
+                        </Button>
+                        <Button onClick={loadUsers} icon={<ReloadOutlined />}>
+                          刷新
+                        </Button>
+                      </div>
+                    }
+                  >
+                    <Table
+                      columns={columns}
+                      dataSource={users}
+                      rowKey="id"
+                      loading={loading}
+                      pagination={{
+                        pageSize: 10,
+                        showSizeChanger: true,
+                        showQuickJumper: true,
+                      }}
+                    />
+                  </Card>
+                ),
+              },
+              {
+                key: 'activation',
+                label: '激活码管理',
+                children: (
+                  <Card
+                    title="激活码管理"
+                    extra={
+                      <Button onClick={loadActivationCodes} icon={<ReloadOutlined />}>
+                        刷新
                       </Button>
-                    </Form.Item>
-                  </Form>
-                </Card>
-                <Table
-                  columns={codeColumns}
-                  dataSource={activationCodes}
-                  rowKey="id"
-                  loading={loading}
-                  pagination={{
-                    pageSize: 10,
-                    showSizeChanger: true,
-                    showQuickJumper: true,
-                  }}
-                />
-              </Card>
-            </TabPane>
-            <TabPane tab="统计信息" key="stats">
-              <Card title="系统统计">
-                {stats ? (
-                  <>
-                    <Row gutter={[16, 16]}>
-                      <Col span={6}>
-                        <Statistic title="总用户数" value={stats.total_users} />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic title="活跃用户" value={stats.active_users} />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic title="总激活码" value={stats.total_activation_codes} />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic title="已使用激活码" value={stats.used_activation_codes} />
-                      </Col>
-                    </Row>
-                    <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-                      <Col span={12}>
-                        <Card>
-                          <Statistic title="总使用额度" value={stats.total_credits_used} />
-                        </Card>
-                      </Col>
-                      <Col span={12}>
-                        <Card>
-                          <Statistic title="平均用户额度" value={stats.avg_credits_per_user.toFixed(2)} />
-                        </Card>
-                      </Col>
-                    </Row>
-                    <Card style={{ marginTop: 16 }}>
-                      <h3>月度使用统计</h3>
-                      {stats.monthly_stats.map((item, index) => (
-                        <div key={index} style={{ marginBottom: 12 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span>{item.month}</span>
-                            <span>{item.usage} 次</span>
-                          </div>
-                          <Progress percent={(item.usage / 100) * 100} />
-                        </div>
-                      ))}
+                    }
+                  >
+                    <Card className={styles.generateCard}>
+                      <h3>生成激活码</h3>
+                      <Form layout="inline" onFinish={handleGenerateCodes}>
+                        <Form.Item
+                          name="count"
+                          label="数量"
+                          rules={[{ required: true, message: '请输入数量' }]}
+                        >
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={codeCount}
+                            onChange={(e) => setCodeCount(Number(e.target.value))}
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name="type"
+                          label="类型"
+                          rules={[{ required: true, message: '请选择类型' }]}
+                        >
+                          <Select
+                            value={codeType}
+                            onChange={setCodeType}
+                          >
+                            <Option value="trial">试用</Option>
+                            <Option value="monthly">月卡</Option>
+                            <Option value="yearly">年卡</Option>
+                            <Option value="permanent">永久</Option>
+                          </Select>
+                        </Form.Item>
+                        <Form.Item
+                          name="credits"
+                          label="额度"
+                          rules={[{ required: true, message: '请输入额度' }]}
+                        >
+                          <Input
+                            type="number"
+                            min={1}
+                            value={codeCredits}
+                            onChange={(e) => setCodeCredits(Number(e.target.value))}
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name="validity"
+                          label="有效期(天)"
+                          rules={[{ required: true, message: '请输入有效期' }]}
+                        >
+                          <Input
+                            type="number"
+                            min={1}
+                            value={codeValidity}
+                            onChange={(e) => setCodeValidity(Number(e.target.value))}
+                          />
+                        </Form.Item>
+                        <Form.Item>
+                          <Button
+                            type="primary"
+                            htmlType="submit"
+                            loading={generatingCodes}
+                          >
+                            生成
+                          </Button>
+                        </Form.Item>
+                      </Form>
                     </Card>
-                  </>
-                ) : (
-                  <div className={styles.loading}>
-                    <Button onClick={loadStats} icon={<ReloadOutlined />}>
-                      加载统计信息
-                    </Button>
-                  </div>
-                )}
-              </Card>
-            </TabPane>
-          </Tabs>
+                    <Table
+                      columns={codeColumns}
+                      dataSource={activationCodes}
+                      rowKey="id"
+                      loading={loading}
+                      pagination={{
+                        pageSize: 10,
+                        showSizeChanger: true,
+                        showQuickJumper: true,
+                      }}
+                    />
+                  </Card>
+                ),
+              },
+              {
+                key: 'stats',
+                label: '统计信息',
+                children: (
+                  <Card title="系统统计">
+                    {stats ? (
+                      <>
+                        <Row gutter={[16, 16]}>
+                          <Col span={6}>
+                            <Statistic title="总用户数" value={stats.total_users} />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic title="活跃用户" value={stats.active_users} />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic title="总激活码" value={stats.total_activation_codes} />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic title="已使用激活码" value={stats.used_activation_codes} />
+                          </Col>
+                        </Row>
+                        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+                          <Col span={12}>
+                            <Card>
+                              <Statistic title="总使用额度" value={stats.total_credits_used} />
+                            </Card>
+                          </Col>
+                          <Col span={12}>
+                            <Card>
+                              <Statistic title="平均用户额度" value={stats.avg_credits_per_user.toFixed(2)} />
+                            </Card>
+                          </Col>
+                        </Row>
+                        <Card style={{ marginTop: 16 }}>
+                          <h3>月度使用统计</h3>
+                          {stats.monthly_stats.map((item, index) => (
+                            <div key={index} style={{ marginBottom: 12 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <span>{item.month}</span>
+                                <span>{item.usage} 次</span>
+                              </div>
+                              <Progress percent={(item.usage / 100) * 100} />
+                            </div>
+                          ))}
+                        </Card>
+                      </>
+                    ) : (
+                      <div className={styles.loading}>
+                        <Button onClick={loadStats} icon={<ReloadOutlined />}>
+                          加载统计信息
+                        </Button>
+                      </div>
+                    )}
+                  </Card>
+                ),
+              },
+              {
+                key: 'palettes',
+                label: '色库管理',
+                children: <PaletteManager />,
+              },
+            ]}
+          />
         </Content>
       </Layout>
 
@@ -590,6 +690,58 @@ const AdminPanel: React.FC = () => {
               value={newCredits}
               onChange={(e) => setNewCredits(Number(e.target.value))}
             />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="添加用户"
+        open={addUserModalVisible}
+        onOk={() => addUserForm.submit()}
+        onCancel={() => {
+          setAddUserModalVisible(false);
+          addUserForm.resetFields();
+        }}
+        confirmLoading={loading}
+      >
+        <Form
+          form={addUserForm}
+          onFinish={handleAddUser}
+          layout="vertical"
+        >
+          <Form.Item
+            label="用户名"
+            name="username"
+            rules={[{ required: true, message: '请输入用户名' }]}
+          >
+            <Input placeholder="请输入用户名" />
+          </Form.Item>
+          <Form.Item
+            label="手机号"
+            name="phone"
+            rules={[
+              { required: true, message: '请输入手机号' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' }
+            ]}
+          >
+            <Input placeholder="请输入手机号" />
+          </Form.Item>
+          <Form.Item
+            label="邮箱"
+            name="email"
+            rules={[{ type: 'email', message: '请输入有效的邮箱' }]}
+          >
+            <Input placeholder="请输入邮箱（可选）" />
+          </Form.Item>
+          <Form.Item
+            label="密码"
+            name="password"
+            rules={[
+              { required: true, message: '请输入密码' },
+              { min: 6, message: '密码至少6位' }
+            ]}
+          >
+            <Input.Password placeholder="请输入密码" />
           </Form.Item>
         </Form>
       </Modal>

@@ -2,7 +2,8 @@ import React, { useEffect, useMemo } from 'react';
 import { Card, Descriptions, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { usePatternStore } from '../../stores/usePatternStore';
-import { savePatternAsPng, exportColorsAsCsv, saveProjectToFile } from '../../utils/exportUtils';
+import { exportColorsAsCsv } from '../../utils/exportUtils';
+import { generatePatternImage } from '../../utils/patternExport';
 import { useImageStore } from '../../stores/useImageStore';
 
 const { Text } = Typography;
@@ -57,18 +58,15 @@ export const ExportPanel: React.FC = () => {
     const handler = (e: Event) => {
       const custom = e as CustomEvent<string>;
       const key = custom.detail;
-      if (key.startsWith('export-png')) {
-        const scale = key === 'export-png-4x' ? 4 : key === 'export-png-2x' ? 2 : 1;
-        savePatternAsPng(patternState, scale);
-      } else if (key === 'export-csv') {
-        exportColorsAsCsv(stats.rows);
-      } else if (key === 'export-json') {
-        saveProjectToFile(imageState, patternState);
+      if (key === 'export-png-with-index') {
+        generatePatternImage(patternState, true);
+      } else if (key === 'export-png-without-index') {
+        generatePatternImage(patternState, false);
       }
     };
     window.addEventListener('bead-export', handler as EventListener);
     return () => window.removeEventListener('bead-export', handler as EventListener);
-  }, [patternState, stats.rows, imageState]);
+  }, [patternState]);
 
   const columns: ColumnsType<ColorUsageRow> = [
     {

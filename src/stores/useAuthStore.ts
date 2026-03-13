@@ -247,6 +247,7 @@ export const useAuthStore = create<AuthState>()(
         maxTrialCount: state.maxTrialCount,
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
+        adminToken: state.adminToken,
         user: state.user,
         // 不持久化 isAdmin，只持久化 token
         // isAdmin 需要通过 token 有效性来判断

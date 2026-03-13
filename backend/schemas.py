@@ -23,6 +23,7 @@ class UserLogin(BaseModel):
     phone: str
     password: str
     device_id: Optional[str] = None
+    device_type: Optional[str] = None
     fcm_token: Optional[str] = None
 
 

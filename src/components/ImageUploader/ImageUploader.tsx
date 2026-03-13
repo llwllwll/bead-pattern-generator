@@ -3,6 +3,7 @@ import { Upload, Typography, Space, message } from 'antd';
 import type { UploadProps } from 'antd';
 import { InboxOutlined, PictureOutlined } from '@ant-design/icons';
 import { useImageStore } from '../../stores/useImageStore';
+import { usePatternStore } from '../../stores/usePatternStore';
 
 const { Dragger } = Upload;
 const { Text } = Typography;
@@ -12,8 +13,12 @@ const MAX_SIZE = 5 * 1024 * 1024;
 
 export const ImageUploader: React.FC = () => {
   const setFile = useImageStore((s) => s.setFile);
+  const { params } = usePatternStore();
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [info, setInfo] = useState<{ width: number; height: number; sizeKB: number }>();
+
+  // 计算总颗粒数
+  const totalBeads = params.width * params.height;
 
   const handleFile = useCallback(
     (file: File) => {
@@ -117,6 +122,9 @@ export const ImageUploader: React.FC = () => {
           />
           <Text type="secondary">
             尺寸：{info.width} × {info.height} px，大小：{info.sizeKB} KB
+          </Text>
+          <Text type="secondary">
+            总颗粒数：{totalBeads} 颗
           </Text>
         </Space>
       )}

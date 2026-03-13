@@ -1,13 +1,13 @@
 import React from 'react';
 import { Select, Typography, Space, Button } from 'antd';
-import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import { usePatternStore } from '../../stores/usePatternStore';
 import styles from './PaletteSelector.module.css';
 
 const { Text } = Typography;
 
 export const PaletteSelector: React.FC = () => {
-  const { paletteList, params, setParams } = usePatternStore();
+  const { paletteList, params, setParams, fetchPalettes } = usePatternStore();
 
   const options = paletteList.map((p) => ({
     value: p.id,
@@ -21,19 +21,15 @@ export const PaletteSelector: React.FC = () => {
       <div className={styles.paletteHeader}>
         <div className={styles.paletteTitle}>色彩库选择</div>
         <div className={styles.paletteActions}>
-          <Button 
-            size="small" 
+          <Button
+            size="small"
             icon={<ReloadOutlined />}
             title="刷新色板"
-          />
-          <Button 
-            size="small" 
-            icon={<PlusOutlined />}
-            title="添加色板"
+            onClick={fetchPalettes}
           />
         </div>
       </div>
-      
+
       <Space direction="vertical" style={{ width: '100%' }}>
         <Select
           value={params.paletteId}
@@ -49,7 +45,7 @@ export const PaletteSelector: React.FC = () => {
               key={c.id}
               className={styles.paletteCell}
               style={{ backgroundColor: c.hex }}
-              title={`${c.name} (${c.hex})`}
+              title={`${c.name || c.colorCode} (${c.hex})`}
             />
           ))}
         </div>
@@ -62,4 +58,3 @@ export const PaletteSelector: React.FC = () => {
     </div>
   );
 };
-

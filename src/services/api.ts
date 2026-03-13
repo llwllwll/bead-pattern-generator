@@ -184,9 +184,8 @@ export const adminAPI = {
     permissions?: Record<string, any>;
   }) => apiClient.post('/api/admin/create', data),
   
-  generateActivationCodes: (params: {
-    count?: number;
-  }, config: {
+  generateActivationCodes: (data: {
+    count: number;
     code_type: string;
     credits: number;
     validity_days?: number;
@@ -195,7 +194,7 @@ export const adminAPI = {
     batch_id?: string;
     note?: string;
     expires_at?: string;
-  }) => apiClient.post('/api/admin/activation-codes/generate', config, { params }),
+  }) => apiClient.post('/api/admin/activation-codes/generate', data),
   
   listActivationCodes: (params?: {
     page?: number;
@@ -212,7 +211,14 @@ export const adminAPI = {
     is_active?: boolean;
     is_verified?: boolean;
   }) => apiClient.get('/api/admin/users', { params }),
-  
+
+  createUser: (data: {
+    username: string;
+    phone: string;
+    password: string;
+    email?: string;
+  }) => apiClient.post('/api/admin/users', data),
+
   updateUserCredits: (
     userId: string,
     data: {
@@ -223,6 +229,85 @@ export const adminAPI = {
   ) => apiClient.put(`/api/admin/users/${userId}/credits`, data),
   
   getStats: () => apiClient.get('/api/admin/stats'),
+};
+
+// Palette API
+export const paletteApi = {
+  // Public APIs (for frontend)
+  getPublicPalettes: () =>
+    apiClient.get('/api/admin/palettes/public').then((res) => res.data),
+
+  getPublicPalette: (paletteId: string) =>
+    apiClient.get(`/api/admin/palettes/public/${paletteId}`).then((res) => res.data),
+
+  // Admin APIs
+  getPalettes: () =>
+    apiClient.get('/api/admin/palettes').then((res) => res.data),
+
+  getPalette: (paletteId: string) =>
+    apiClient.get(`/api/admin/palettes/${paletteId}`).then((res) => res.data),
+
+  createPalette: (data: {
+    name: string;
+    code: string;
+    description?: string;
+    brand?: string;
+    is_default?: boolean;
+    colors: Array<{
+      color_code: string;
+      name?: string;
+      hex: string;
+      is_transparent?: boolean;
+      is_glow?: boolean;
+      is_metallic?: boolean;
+      display_order?: number;
+    }>;
+  }) => apiClient.post('/api/admin/palettes', data).then((res) => res.data),
+
+  updatePalette: (
+    paletteId: string,
+    data: {
+      name?: string;
+      description?: string;
+      brand?: string;
+      is_active?: boolean;
+      is_default?: boolean;
+    }
+  ) => apiClient.put(`/api/admin/palettes/${paletteId}`, data).then((res) => res.data),
+
+  deletePalette: (paletteId: string) =>
+    apiClient.delete(`/api/admin/palettes/${paletteId}`),
+
+  // Color management
+  addColor: (
+    paletteId: string,
+    data: {
+      color_code: string;
+      name?: string;
+      hex: string;
+      is_transparent?: boolean;
+      is_glow?: boolean;
+      is_metallic?: boolean;
+      display_order?: number;
+    }
+  ) => apiClient.post(`/api/admin/palettes/${paletteId}/colors`, data).then((res) => res.data),
+
+  updateColor: (
+    paletteId: string,
+    colorId: string,
+    data: {
+      color_code: string;
+      name?: string;
+      hex: string;
+      is_transparent?: boolean;
+      is_glow?: boolean;
+      is_metallic?: boolean;
+      display_order?: number;
+    }
+  ) => apiClient.put(`/api/admin/palettes/${paletteId}/colors/${colorId}`, data).then((res) => res.data),
+
+  deleteColor: (paletteId: string, colorId: string) =>
+    apiClient.delete(`/api/admin/palettes/${paletteId}/colors/${colorId}`),
 };
 
 export default apiClient;

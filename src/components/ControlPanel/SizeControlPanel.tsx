@@ -1,20 +1,17 @@
 import React, { useEffect, useMemo } from 'react';
-import { Card, Form, Slider, Select, Radio, Space, Typography, Tooltip, Divider } from 'antd';
-import { LockOutlined, UnlockOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { Card, Form, Slider, Select, Space, Typography, Tooltip, Divider, Button } from 'antd';
+import { LockOutlined, UnlockOutlined, FileAddOutlined } from '@ant-design/icons';
 import { usePatternStore } from '../../stores/usePatternStore';
 import { useImageStore } from '../../stores/useImageStore';
 
 const { Text } = Typography;
 
-// 抖动算法说明
-const ditheringDescriptions: Record<string, string> = {
-  'none': '不使用抖动算法，颜色过渡较生硬，但颜色还原最准确',
-  'floyd-steinberg': '经典抖动算法，在颜色间添加噪点使过渡更平滑，适合渐变丰富的图片',
-  'atkinson': '苹果经典算法，保留更多细节，适合线条清晰的图案'
-};
+interface SizeControlPanelProps {
+  onGenerate: () => void;
+}
 
-export const ControlPanel: React.FC = () => {
-  const { params, setParams, paletteList } = usePatternStore();
+export const SizeControlPanel: React.FC<SizeControlPanelProps> = ({ onGenerate }) => {
+  const { params, setParams } = usePatternStore();
   const { originalWidth, originalHeight } = useImageStore();
 
   // 计算图片比例
@@ -29,29 +26,6 @@ export const ControlPanel: React.FC = () => {
       }
     }
   }, [params.width, params.lockRatio, imageRatio, setParams]);
-
-  // 获取当前色板的颜色选项
-  const currentPalette = useMemo(() => {
-    return paletteList.find((p) => p.id === params.paletteId);
-  }, [paletteList, params.paletteId]);
-
-  const colorOptions = useMemo(() => {
-    return currentPalette?.colors.map((c) => ({
-      value: c.hex,
-      label: (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ 
-            width: '20px', 
-            height: '20px', 
-            borderRadius: '4px', 
-            backgroundColor: c.hex,
-            border: '1px solid rgba(0,0,0,0.1)'
-          }} />
-          <span>{c.colorCode || ''} {c.name || ''}</span>
-        </div>
-      ),
-    })) || [];
-  }, [currentPalette]);
 
   // 计算物理尺寸
   const physicalSize = useMemo(() => {
@@ -83,7 +57,7 @@ export const ControlPanel: React.FC = () => {
           fontWeight: 600,
           color: 'var(--text-primary)'
         }}>
-          拼豆参数设置
+          尺寸设置
         </Typography.Title>
       </div>
 
@@ -185,82 +159,16 @@ export const ControlPanel: React.FC = () => {
             </Text>
           </div>
 
-          <Form.Item label="边缘平滑度">
-            <Slider
-              min={0}
-              max={100}
-              value={params.edgeSmooth}
-              onChange={(v) => setParams({ edgeSmooth: Number(v) })}
-              tooltip={{ formatter: (value) => `${value}%` }}
-            />
-          </Form.Item>
-
-          <Form.Item label="颜色容差">
-            <Slider
-              min={0}
-              max={100}
-              value={params.colorTolerance}
-              onChange={(v) => setParams({ colorTolerance: Number(v) })}
-              tooltip={{ formatter: (value) => `${value}%` }}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label={
-              <Space>
-                <span>抖动算法</span>
-                <Tooltip title={ditheringDescriptions[params.dithering]}>
-                  <QuestionCircleOutlined style={{ color: 'var(--text-secondary)' }} />
-                </Tooltip>
-              </Space>
-            }
+          <Button
+            type="primary"
+            icon={<FileAddOutlined />}
+            title="生成图纸"
+            onClick={onGenerate}
+            block
+            style={{ marginTop: 'var(--spacing-md)' }}
           >
-            <Select
-              value={params.dithering}
-              onChange={(v) => setParams({ dithering: v })}
-              options={[
-                { value: 'none', label: '无抖动 - 颜色还原最准确' },
-                { value: 'floyd-steinberg', label: 'Floyd-Steinberg - 平滑渐变效果' },
-                { value: 'atkinson', label: 'Atkinson - 保留更多细节' }
-              ]}
-              size="small"
-              style={{ width: '100%' }}
-            />
-            <Text type="secondary" style={{ fontSize: '12px', marginTop: 4, display: 'block' }}>
-              {ditheringDescriptions[params.dithering]}
-            </Text>
-          </Form.Item>
-
-          <Form.Item label="透明度处理">
-            <Radio.Group
-              value={params.transparencyMode}
-              onChange={(e) => setParams({ transparencyMode: e.target.value })}
-            >
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Radio value="keep">保留透明</Radio>
-                <Radio value="white">替换为白色</Radio>
-                <Radio value="custom">
-                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                    <span>替换为指定颜色</span>
-                  </Space>
-                </Radio>
-              </Space>
-            </Radio.Group>
-            {params.transparencyMode === 'custom' && (
-              <Select
-                value={params.transparencyColor}
-                onChange={(v) => setParams({ transparencyColor: v })}
-                options={colorOptions}
-                size="small"
-                style={{ width: '100%', marginTop: 8 }}
-                placeholder="从色库中选择颜色"
-              />
-            )}
-          </Form.Item>
-
-          <Text type="secondary" style={{ fontSize: '14px' }}>
-            参数变更会在短暂延迟后自动更新预览图，以保证交互流畅。
-          </Text>
+            生成图纸
+          </Button>
         </Form>
       </div>
     </div>
