@@ -97,6 +97,6 @@ REFRESH_TOKEN_EXPIRE_DAYS=7
 - 用户名：`admin`
 - 密码：`admin123`
 
-## 许可证
+## 更新日志
 
-MIT License
+详见 [CHANGELOG.md](./CHANGELOG.md)
