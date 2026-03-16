@@ -28,7 +28,7 @@ import { usePatternStore } from './stores/usePatternStore';
 import { useAuthStore } from './stores/useAuthStore';
 import { loadProjectFromLocalStorage, saveProjectToLocalStorage } from './utils/exportUtils';
 import { generatePatternFromImage } from './utils/imageUtils';
-import { patternAPI } from './services/api';
+import { patternAPI, authAPI } from './services/api';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
@@ -55,6 +55,11 @@ const App: React.FC = () => {
   const [showAbout, setShowAbout] = useState(false);
   const [aboutClickCount, setAboutClickCount] = useState(0);
   const [aboutClickTimer, setAboutClickTimer] = useState<NodeJS.Timeout | null>(null);
+  const [changePasswordModalVisible, setChangePasswordModalVisible] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // 初始化加载本地保存的项目
@@ -195,6 +200,33 @@ const App: React.FC = () => {
     message.success('已退出登录');
   };
 
+  const handleChangePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      message.error('两次输入的密码不一致');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      message.error('新密码长度至少为6位');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await authAPI.changePassword({ old_password: oldPassword, new_password: newPassword });
+      message.success('密码修改成功');
+      setChangePasswordModalVisible(false);
+      // 清空表单
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '密码修改失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className={styles.appLayout}>
       {currentPage === 'app' ? (
@@ -276,9 +308,16 @@ const App: React.FC = () => {
                       <span style={{ marginRight: 16 }}>
                         剩余额度: {useAuthStore.getState().user?.remaining_credits || 0}
                       </span>
-                      <span>
+                      <span style={{ marginRight: 16 }}>
                         已使用: {useAuthStore.getState().user?.total_used || 0}
                       </span>
+                      <Button 
+                        type="link" 
+                        size="small" 
+                        onClick={() => setChangePasswordModalVisible(true)}
+                      >
+                        修改密码
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -335,6 +374,84 @@ const App: React.FC = () => {
             visible={authModalVisible}
             onClose={() => setAuthModalVisible(false)}
           />
+
+          {/* 修改密码模态框 */}
+          <Modal
+            title="修改密码"
+            open={changePasswordModalVisible}
+            onCancel={() => {
+              setChangePasswordModalVisible(false);
+              // 清空表单
+              setOldPassword('');
+              setNewPassword('');
+              setConfirmPassword('');
+            }}
+            onOk={handleChangePassword}
+            confirmLoading={loading}
+            footer={[
+              <Button key="cancel" onClick={() => {
+                setChangePasswordModalVisible(false);
+                // 清空表单
+                setOldPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+              }}>
+                取消
+              </Button>,
+              <Button
+                key="submit"
+                type="primary"
+                loading={loading}
+                onClick={handleChangePassword}
+              >
+                确认修改
+              </Button>,
+            ]}
+          >
+            <div style={{ padding: '20px 0' }}>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+                  旧密码
+                </label>
+                <Input.Password
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  placeholder="请输入旧密码"
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+                  新密码
+                </label>
+                <Input.Password
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="请输入新密码（至少6位）"
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+                  确认新密码
+                </label>
+                <Input.Password
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="请再次输入新密码"
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ marginTop: 20, padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+                <div style={{ marginBottom: 8, fontWeight: 500 }}>忘记密码？请联系管理员重置</div>
+                <div style={{ fontSize: '14px', color: '#666' }}>
+                  <div>微信：13710731678</div>
+                  <div>微信：Bringsomeart_ac</div>
+                  <div>微信：SCNU_makeiture</div>
+                </div>
+              </div>
+            </div>
+          </Modal>
 
           {/* 设置模态框 */}
           <Modal
