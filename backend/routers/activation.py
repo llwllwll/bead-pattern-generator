@@ -165,7 +165,15 @@ async def deduct_credits(
     user: User,
     action_type: str,
     credits: int = 1,
-    db: AsyncSession = None
+    db: AsyncSession = None,
+    image_size: int = None,
+    result_size: str = None,
+    processing_time: int = None,
+    success: bool = True,
+    error_message: str = None,
+    ip_address: str = None,
+    user_agent: str = None,
+    device_info: dict = None
 ):
     """Deduct credits from user and record usage"""
     if user.remaining_credits < credits:
@@ -179,14 +187,26 @@ async def deduct_credits(
     user.total_used += credits
     user.last_used_at = datetime.utcnow()
     
-    # Create usage record
-    usage_record = UsageRecord(
-        user_id=user.id,
-        action_type=action_type,
-        credits_used=credits
-    )
-    
-    db.add(usage_record)
-    await db.commit()
+    # Create usage record if db is provided
+    if db:
+        usage_record = UsageRecord(
+            user_id=user.id,
+            action_type=action_type,
+            credits_used=credits,
+            image_size=image_size,
+            result_size=result_size,
+            processing_time=processing_time,
+            success=success,
+            error_message=error_message,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_info=device_info
+        )
+        
+        db.add(usage_record)
+        await db.commit()
+        
+        # Refresh user after commit to get updated credits
+        await db.refresh(user)
     
     return user.remaining_credits

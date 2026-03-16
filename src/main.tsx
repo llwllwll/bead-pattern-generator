@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ConfigProvider, theme as antdTheme } from 'antd';
+import { ConfigProvider, theme as antdTheme, App as AntdApp } from 'antd';
 import App from './App';
 import './index.css';
 import { useUIStore } from './stores/useUIStore';
@@ -19,7 +19,9 @@ const RootApp: React.FC = () => {
         algorithm
       }}
     >
-      <App />
+      <AntdApp>
+        <App />
+      </AntdApp>
     </ConfigProvider>
   );
 };

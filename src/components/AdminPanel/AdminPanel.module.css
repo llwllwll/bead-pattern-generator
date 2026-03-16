@@ -106,3 +106,20 @@
 .loadingSpinner :global(.ant-spin) {
   margin-bottom: 16px;
 }
+
+.errorContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #f0f2f5;
+  padding: 20px;
+}
+
+.error-row {
+  background-color: #fff2f0;
+}
+
+.error-row:hover {
+  background-color: #ffccc7 !important;
+}

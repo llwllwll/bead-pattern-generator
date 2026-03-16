@@ -10,7 +10,7 @@ from schemas import (
     PermissionCheckResponse
 )
 from auth import get_current_user, check_credits_required
-from routers.activation import deduct_credits
+from routers.activation import deduct_credits as deduct_user_credits
 
 router = APIRouter(prefix="/api/pattern", tags=["图案生成"])
 
@@ -28,8 +28,30 @@ async def check_permission(current_user: User = Depends(get_current_user)):
         can_use_custom_palette=current_user.remaining_credits > 0,
         remaining_credits=current_user.remaining_credits,
         max_image_size=5242880,  # 5MB
-        max_output_size="100x100",
-        message=None if can_generate else "Insufficient credits. Please purchase or enter an activation code."
+        max_output_size="200x200",
+        message="" if can_generate else "Insufficient credits"
+    )
+
+
+@router.post("/deduct-credits", response_model=PatternGenerateResponse)
+async def deduct_credits_endpoint(
+    current_user: User = Depends(check_credits_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """Deduct credits for pattern generation"""
+    # Deduct credits
+    remaining = await deduct_user_credits(
+        user=current_user,
+        action_type="generate",
+        credits=1,
+        db=db
+    )
+    
+    return PatternGenerateResponse(
+        success=True,
+        message="Credits deducted successfully",
+        credits_remaining=remaining,
+        result_url=None
     )
 
 

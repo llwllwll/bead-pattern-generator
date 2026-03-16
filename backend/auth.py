@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import uuid
 
 from config import settings
 from database import get_db
@@ -94,8 +95,13 @@ async def get_current_user(
             detail="Invalid token type"
         )
     
+    try:
+        user_id = uuid.UUID(payload.sub)
+    except Exception:
+        raise credentials_exception
+
     # Get user from database
-    result = await db.execute(select(User).where(User.id == payload.sub))
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     
     if user is None:
@@ -133,9 +139,21 @@ async def get_current_admin(
     
     if payload is None or payload.sub is None:
         raise credentials_exception
+
+    # Check if it's an access token
+    if payload.type != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type"
+        )
+
+    try:
+        admin_id = uuid.UUID(payload.sub)
+    except Exception:
+        raise credentials_exception
     
     # Get admin from database
-    result = await db.execute(select(Admin).where(Admin.id == payload.sub))
+    result = await db.execute(select(Admin).where(Admin.id == admin_id))
     admin = result.scalar_one_or_none()
     
     if admin is None:

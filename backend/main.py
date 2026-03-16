@@ -4,14 +4,22 @@ from contextlib import asynccontextmanager
 
 from config import settings
 from database import init_db
-from routers import auth, activation, pattern, admin, palette
+from routers.auth import router as auth_router
+from routers.activation import router as activation_router
+from routers.pattern import router as pattern_router
+from routers.admin import router as admin_router
+from routers.palette import router as palette_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     # Startup
-    await init_db()
+    try:
+        await init_db()
+    except Exception as e:
+        print(f"Database initialization failed: {e}")
+        print("Server will start without database connection")
     yield
     # Shutdown
     pass
@@ -43,11 +51,11 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(auth.router)
-app.include_router(activation.router)
-app.include_router(pattern.router)
-app.include_router(admin.router)
-app.include_router(palette.router)
+app.include_router(auth_router)
+app.include_router(activation_router)
+app.include_router(pattern_router)
+app.include_router(admin_router)
+app.include_router(palette_router)
 
 
 @app.get("/")

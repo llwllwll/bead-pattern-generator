@@ -15,6 +15,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=6, max_length=100)
+    email: Optional[str] = None
     device_id: Optional[str] = None
     device_type: Optional[str] = None
 
@@ -97,6 +98,18 @@ class ActivationCodeCreate(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+class ActivationCodeGenerateRequest(BaseModel):
+    count: int = Field(default=1, ge=1, le=100)
+    code_type: str = Field(..., pattern="^(trial|monthly|yearly|permanent)$")
+    credits: int = Field(..., gt=0)
+    validity_days: Optional[int] = Field(default=30, ge=1)
+    price: Optional[Decimal] = None
+    currency: str = "CNY"
+    batch_id: Optional[str] = None
+    note: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+
 class ActivationCodeResponse(BaseModel):
     id: uuid.UUID
     code: str
@@ -156,6 +169,39 @@ class UsageHistoryFilter(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+
+
+# ============== Admin Log Schemas ==============
+
+class AdminLogBase(BaseModel):
+    action: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[str] = None
+    details: Optional[dict] = None
+
+
+class AdminLogCreate(AdminLogBase):
+    pass
+
+
+class AdminLogResponse(AdminLogBase):
+    id: uuid.UUID
+    admin_id: Optional[uuid.UUID] = None
+    admin_username: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class AdminLogFilter(BaseModel):
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=20, ge=1, le=100)
+    action: Optional[str] = None
+    resource_type: Optional[str] = None
+    admin_id: Optional[uuid.UUID] = None
 
 
 # ============== Credit Schemas ==============

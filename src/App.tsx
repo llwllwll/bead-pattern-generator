@@ -28,6 +28,7 @@ import { usePatternStore } from './stores/usePatternStore';
 import { useAuthStore } from './stores/useAuthStore';
 import { loadProjectFromLocalStorage, saveProjectToLocalStorage } from './utils/exportUtils';
 import { generatePatternFromImage } from './utils/imageUtils';
+import { patternAPI } from './services/api';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
@@ -64,6 +65,11 @@ const App: React.FC = () => {
       setHasSeenTutorial(loaded.hasSeenTutorial ?? false);
     }
   }, [setHasSeenTutorial]);
+
+  useEffect(() => {
+    // 初始化加载色库列表
+    patternState.fetchPalettes();
+  }, []);
 
   useEffect(() => {
     // 自动保存到 localStorage
@@ -133,18 +139,36 @@ const App: React.FC = () => {
     patternState.setProcessing(true);
     
     try {
+      console.log('开始生成图纸');
       const palette = patternState.paletteList.find(p => p.id === patternState.params.paletteId);
       if (!palette) {
         message.error('未找到选中的色板');
         return;
       }
 
+      console.log('找到色板:', palette.name);
+
+      // 先调用后端 API 扣除额度
+      try {
+        // 使用 deductCredits 端点来扣除额度
+        const result = await patternAPI.deductCredits();
+        console.log('后端 API 调用成功，额度已扣除，剩余额度:', result.data.credits_remaining);
+        
+        // 更新本地用户信息，确保显示的已使用次数能够正确更新
+        await useAuthStore.getState().fetchUserInfo();
+      } catch (error) {
+        console.error('后端 API 调用失败:', error);
+        // 即使 API 调用失败，也继续生成图纸
+      }
+
+      // 本地生成图纸
       const cells = await generatePatternFromImage(
         imageState.editedDataUrl,
         patternState.params,
         palette
       );
       
+      console.log('生成图纸成功，细胞数量:', cells.length);
       patternState.setPatternCells(cells);
       message.success('图纸生成成功！');
     } catch (error) {
@@ -194,7 +218,7 @@ const App: React.FC = () => {
             </button>
             <button
               className={styles.sidebarItem}
-              title="关于 (连点3次进入管理后台)"
+              title="关于"
               onClick={() => {
                 const newCount = aboutClickCount + 1;
                 setAboutClickCount(newCount);
@@ -243,6 +267,21 @@ const App: React.FC = () => {
             {/* 主要内容 */}
             <div className={styles.mainGrid}>
               <div className={styles.leftPanel}>
+                {isAuthenticated && (
+                  <div className={styles.userInfoBox}>
+                    <div className={styles.userInfoContent}>
+                      <span style={{ marginRight: 16 }}>
+                        欢迎，{useAuthStore.getState().user?.username || '用户'}
+                      </span>
+                      <span style={{ marginRight: 16 }}>
+                        剩余额度: {useAuthStore.getState().user?.remaining_credits || 0}
+                      </span>
+                      <span>
+                        已使用: {useAuthStore.getState().user?.total_used || 0}
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <ImageUploader />
                 <ImageEditor />
                 <PaletteSelector />

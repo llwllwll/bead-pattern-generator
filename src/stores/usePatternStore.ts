@@ -102,13 +102,43 @@ export const usePatternStore = create<PatternState>((set, get) => ({
     try {
       const palettes = await paletteApi.getPublicPalettes();
       if (palettes && palettes.length > 0) {
-        set({ paletteList: palettes });
+        // 转换后端返回的数据格式，添加 colors 数组
+        const transformedPalettes = await Promise.all(
+          palettes.map(async (palette: any) => {
+            try {
+              // 获取每个色库的详细信息（包含颜色列表）
+              const paletteDetail = await paletteApi.getPublicPalette(palette.id);
+              return {
+                id: palette.id,
+                name: palette.name,
+                code: palette.code,
+                colors: (paletteDetail.colors || []).map((color: any) => ({
+                  id: color.id,
+                  colorCode: color.color_code,
+                  name: color.name,
+                  hex: color.hex
+                }))
+              };
+            } catch (error) {
+              console.error(`Failed to fetch palette details for ${palette.id}:`, error);
+              // 如果获取详细信息失败，返回基本信息
+              return {
+                id: palette.id,
+                name: palette.name,
+                code: palette.code,
+                colors: []
+              };
+            }
+          })
+        );
+        
+        set({ paletteList: transformedPalettes });
         // 如果当前选中的色板不在列表中，选择第一个
         const currentId = get().params.paletteId;
-        const exists = palettes.some((p: Palette) => p.id === currentId);
-        if (!exists) {
+        const exists = transformedPalettes.some((p: Palette) => p.id === currentId);
+        if (!exists && transformedPalettes.length > 0) {
           set((state) => ({
-            params: { ...state.params, paletteId: palettes[0].id }
+            params: { ...state.params, paletteId: transformedPalettes[0].id }
           }));
         }
       }

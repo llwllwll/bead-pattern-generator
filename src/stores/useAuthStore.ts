@@ -248,9 +248,8 @@ export const useAuthStore = create<AuthState>()(
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         adminToken: state.adminToken,
+        isAdmin: state.isAdmin, // 添加 isAdmin 状态持久化
         user: state.user,
-        // 不持久化 isAdmin，只持久化 token
-        // isAdmin 需要通过 token 有效性来判断
       })
     }
   )

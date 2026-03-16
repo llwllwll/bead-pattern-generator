@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// 使用相对路径，通过 Vite 代理发送请求
+const API_BASE_URL = '/api';
 
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({
@@ -14,16 +15,41 @@ const apiClient: AxiosInstance = axios.create({
 // Request interceptor - add auth token
 apiClient.interceptors.request.use(
   (config) => {
+    const safeParseJson = <T,>(raw: string | null): T | null => {
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
+      }
+    };
+
+    const getPersistedAuthState = (): { accessToken?: string | null; adminToken?: string | null } | null => {
+      // zustand persist default shape: { state: {...}, version: number }
+      const persisted = safeParseJson<{ state?: any }>(localStorage.getItem('auth-storage'));
+      if (!persisted?.state) return null;
+      return {
+        accessToken: persisted.state.accessToken,
+        adminToken: persisted.state.adminToken
+      };
+    };
+
     // 检查是否是管理员API
-    const isAdminAPI = config.url?.startsWith('/api/admin');
+    const isAdminAPI = config.url?.startsWith('/admin');
     
     if (isAdminAPI) {
-      const adminToken = localStorage.getItem('admin_access_token');
+      const adminToken =
+        localStorage.getItem('admin_access_token') ||
+        getPersistedAuthState()?.adminToken ||
+        null;
       if (adminToken) {
         config.headers.Authorization = `Bearer ${adminToken}`;
       }
     } else {
-      const token = localStorage.getItem('access_token');
+      const token =
+        localStorage.getItem('access_token') ||
+        getPersistedAuthState()?.accessToken ||
+        null;
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -43,7 +69,7 @@ apiClient.interceptors.response.use(
     
     // Handle 401 errors - token expired
     if (error.response?.status === 401 && originalRequest) {
-      const isAdminAPI = originalRequest.url?.startsWith('/api/admin');
+      const isAdminAPI = originalRequest.url?.startsWith('/admin');
       const tokenKey = isAdminAPI ? 'admin_refresh_token' : 'refresh_token';
       const accessTokenKey = isAdminAPI ? 'admin_access_token' : 'access_token';
       
@@ -52,7 +78,7 @@ apiClient.interceptors.response.use(
       if (refreshToken) {
         try {
           // Try to refresh token
-          const refreshUrl = isAdminAPI ? '/api/admin/refresh' : '/api/auth/refresh';
+          const refreshUrl = isAdminAPI ? '/admin/refresh' : '/auth/refresh';
           const response = await axios.post(`${API_BASE_URL}${refreshUrl}`, {}, {
             headers: {
               Authorization: `Bearer ${refreshToken}`,
@@ -103,61 +129,63 @@ export const authAPI = {
     username: string;
     phone: string;
     password: string;
-  }) => apiClient.post('/api/auth/register', data),
+  }) => apiClient.post('/auth/register', data),
   
   login: (data: {
     phone: string;
     password: string;
     device_id?: string;
     fcm_token?: string;
-  }) => apiClient.post('/api/auth/login', data),
+  }) => apiClient.post('/auth/login', data),
   
   refresh: (refreshToken: string) =>
-    apiClient.post('/api/auth/refresh', {}, {
+    apiClient.post('/auth/refresh', {}, {
       headers: { Authorization: `Bearer ${refreshToken}` },
     }),
   
-  getMe: () => apiClient.get('/api/auth/me'),
+  getMe: () => apiClient.get('/auth/me'),
   
   changePassword: (data: { old_password: string; new_password: string }) =>
-    apiClient.put('/api/auth/password', data),
+    apiClient.put('/auth/password', data),
   
   requestPasswordReset: (email: string) =>
-    apiClient.post('/api/auth/password/reset-request', { email }),
+    apiClient.post('/auth/password/reset-request', { email }),
   
   confirmPasswordReset: (data: { token: string; new_password: string }) =>
-    apiClient.post('/api/auth/password/reset-confirm', data),
+    apiClient.post('/auth/password/reset-confirm', data),
 };
 
 // Activation API
 export const activationAPI = {
   validateCode: (activation_code: string) =>
-    apiClient.post('/api/activation/validate', { activation_code }),
+    apiClient.post('/activation/validate', { activation_code }),
   
   applyCode: (activation_code: string) =>
-    apiClient.post('/api/activation/apply', { activation_code }),
+    apiClient.post('/activation/apply', { activation_code }),
   
-  getHistory: () => apiClient.get('/api/activation/history'),
+  getHistory: () => apiClient.get('/activation/history'),
 };
 
 // Credits API
 export const creditsAPI = {
-  getCredits: () => apiClient.get('/api/user/credits'),
+  getCredits: () => apiClient.get('/user/credits'),
   
   getUsageHistory: (params?: {
     page?: number;
     limit?: number;
     start_date?: string;
     end_date?: string;
-  }) => apiClient.get('/api/user/usage-history', { params }),
+  }) => apiClient.get('/user/usage-history', { params }),
 };
 
 // Pattern API
 export const patternAPI = {
-  checkPermission: () => apiClient.get('/api/pattern/check-permission'),
+  checkPermission: () => apiClient.get('/pattern/check-permission'),
+  
+  deductCredits: () => apiClient.post('/pattern/deduct-credits'),
   
   generate: (data: FormData) =>
-    apiClient.post('/api/pattern/generate', data, {
+    apiClient.post('/pattern/generate', data, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -168,13 +196,13 @@ export const patternAPI = {
     height: number;
     palette?: string;
     options?: Record<string, any>;
-  }) => apiClient.post('/api/pattern/generate-json', data),
+  }) => apiClient.post('/pattern/generate-json', data),
 };
 
 // Admin API
 export const adminAPI = {
   login: (data: { username: string; password: string }) =>
-    apiClient.post('/api/admin/login', data),
+    apiClient.post('/admin/login', data),
   
   createAdmin: (data: {
     username: string;
@@ -182,7 +210,7 @@ export const adminAPI = {
     password: string;
     role?: string;
     permissions?: Record<string, any>;
-  }) => apiClient.post('/api/admin/create', data),
+  }) => apiClient.post('/admin/create', data),
   
   generateActivationCodes: (data: {
     count: number;
@@ -194,7 +222,7 @@ export const adminAPI = {
     batch_id?: string;
     note?: string;
     expires_at?: string;
-  }) => apiClient.post('/api/admin/activation-codes/generate', data),
+  }) => apiClient.post('/admin/activation-codes/generate', data),
   
   listActivationCodes: (params?: {
     page?: number;
@@ -202,7 +230,7 @@ export const adminAPI = {
     batch_id?: string;
     is_used?: boolean;
     code_type?: string;
-  }) => apiClient.get('/api/admin/activation-codes', { params }),
+  }) => apiClient.get('/admin/activation-codes', { params }),
   
   listUsers: (params?: {
     page?: number;
@@ -210,14 +238,14 @@ export const adminAPI = {
     search?: string;
     is_active?: boolean;
     is_verified?: boolean;
-  }) => apiClient.get('/api/admin/users', { params }),
+  }) => apiClient.get('/admin/users', { params }),
 
   createUser: (data: {
     username: string;
     phone: string;
     password: string;
     email?: string;
-  }) => apiClient.post('/api/admin/users', data),
+  }) => apiClient.post('/admin/users', data),
 
   updateUserCredits: (
     userId: string,
@@ -226,26 +254,46 @@ export const adminAPI = {
       amount: number;
       note?: string;
     }
-  ) => apiClient.put(`/api/admin/users/${userId}/credits`, data),
+  ) => apiClient.put(`/admin/users/${userId}/credits`, data),
   
-  getStats: () => apiClient.get('/api/admin/stats'),
+  resetUserPassword: (userId: string) => apiClient.post(`/admin/users/${userId}/reset-password`),
+  
+  updateUser: (userId: string, data: {
+    username?: string;
+    email?: string;
+    phone?: string;
+    is_active?: boolean;
+    is_verified?: boolean;
+  }) => apiClient.put(`/admin/users/${userId}`, data),
+  
+  getStats: () => apiClient.get('/admin/stats'),
+  
+  listAdmins: () => apiClient.get('/admin/admins'),
+
+  getAdminLogs: (params?: {
+    page?: number;
+    limit?: number;
+    action?: string;
+    resource_type?: string;
+    admin_id?: string;
+  }) => apiClient.get('/admin/logs', { params }),
 };
 
 // Palette API
 export const paletteApi = {
   // Public APIs (for frontend)
   getPublicPalettes: () =>
-    apiClient.get('/api/admin/palettes/public').then((res) => res.data),
+    apiClient.get('/admin/palettes/public').then((res) => res.data),
 
   getPublicPalette: (paletteId: string) =>
-    apiClient.get(`/api/admin/palettes/public/${paletteId}`).then((res) => res.data),
+    apiClient.get(`/admin/palettes/public/${paletteId}`).then((res) => res.data),
 
   // Admin APIs
   getPalettes: () =>
-    apiClient.get('/api/admin/palettes').then((res) => res.data),
+    apiClient.get('/admin/palettes').then((res) => res.data),
 
   getPalette: (paletteId: string) =>
-    apiClient.get(`/api/admin/palettes/${paletteId}`).then((res) => res.data),
+    apiClient.get(`/admin/palettes/${paletteId}`).then((res) => res.data),
 
   createPalette: (data: {
     name: string;
@@ -262,7 +310,7 @@ export const paletteApi = {
       is_metallic?: boolean;
       display_order?: number;
     }>;
-  }) => apiClient.post('/api/admin/palettes', data).then((res) => res.data),
+  }) => apiClient.post('/admin/palettes', data).then((res) => res.data),
 
   updatePalette: (
     paletteId: string,
@@ -273,10 +321,10 @@ export const paletteApi = {
       is_active?: boolean;
       is_default?: boolean;
     }
-  ) => apiClient.put(`/api/admin/palettes/${paletteId}`, data).then((res) => res.data),
+  ) => apiClient.put(`/admin/palettes/${paletteId}`, data).then((res) => res.data),
 
   deletePalette: (paletteId: string) =>
-    apiClient.delete(`/api/admin/palettes/${paletteId}`),
+    apiClient.delete(`/admin/palettes/${paletteId}`),
 
   // Color management
   addColor: (
@@ -290,7 +338,7 @@ export const paletteApi = {
       is_metallic?: boolean;
       display_order?: number;
     }
-  ) => apiClient.post(`/api/admin/palettes/${paletteId}/colors`, data).then((res) => res.data),
+  ) => apiClient.post(`/admin/palettes/${paletteId}/colors`, data).then((res) => res.data),
 
   updateColor: (
     paletteId: string,
@@ -304,10 +352,10 @@ export const paletteApi = {
       is_metallic?: boolean;
       display_order?: number;
     }
-  ) => apiClient.put(`/api/admin/palettes/${paletteId}/colors/${colorId}`, data).then((res) => res.data),
+  ) => apiClient.put(`/admin/palettes/${paletteId}/colors/${colorId}`, data).then((res) => res.data),
 
   deleteColor: (paletteId: string, colorId: string) =>
-    apiClient.delete(`/api/admin/palettes/${paletteId}/colors/${colorId}`),
+    apiClient.delete(`/admin/palettes/${paletteId}/colors/${colorId}`),
 };
 
 export default apiClient;

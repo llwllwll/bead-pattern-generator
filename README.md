@@ -33,15 +33,19 @@
 ├── backend/               # 后端代码
 │   ├── routers/          # API 路由
 │   ├── models.py         # 数据模型
-│   ├── schemas.py       # Pydantic 模型
+│   ├── schemas.py        # Pydantic 模型
 │   ├── auth.py          # 认证工具
 │   └── main.py          # 应用入口
 ├── src/                  # 前端代码
-│   ├── components/       # React 组件
+│   ├── components/      # React 组件
 │   ├── stores/          # 状态管理
 │   ├── services/        # API 服务
-│   └── utils/          # 工具函数
-└── package.json
+│   └── utils/           # 工具函数
+├── scripts/              # 辅助脚本
+│   ├── backend/         # 后端测试脚本
+│   └── *.py            # 工具脚本
+├── package.json
+└── vite.config.ts
 ```
 
 ## 快速开始

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List
@@ -9,19 +10,68 @@ import secrets
 import string
 
 from database import get_db
-from models import User, ActivationCode, Admin, UsageRecord
+from models import User, ActivationCode, Admin, UsageRecord, AdminLog
 from schemas import (
     AdminCreate, AdminLogin, AdminResponse, Token,
-    ActivationCodeCreate, ActivationCodeResponse,
-    CreditUpdate, MessageResponse, UserCreate, UserResponse
+    ActivationCodeCreate, ActivationCodeResponse, ActivationCodeGenerateRequest,
+    CreditUpdate, MessageResponse, UserCreate, UserResponse,
+    AdminLogResponse, AdminLogFilter
 )
 from auth import (
     verify_password, get_password_hash, create_access_token,
-    create_refresh_token, get_current_admin
+    create_refresh_token, get_current_admin, decode_token
 )
+import json, time
 
 router = APIRouter(prefix="/api/admin", tags=["管理员"])
 security = HTTPBearer()
+
+# region agent log
+def _dlog(hypothesisId: str, location: str, message: str, data: dict):
+    try:
+        with open("debug-5bb0b3.log", "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "5bb0b3",
+                        "runId": "pre-fix",
+                        "hypothesisId": hypothesisId,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+# endregion agent log
+
+
+async def log_admin_action(
+    db: AsyncSession,
+    admin_id: uuid.UUID,
+    action: str,
+    resource_type: str = None,
+    resource_id: str = None,
+    details: dict = None,
+    ip_address: str = None,
+    user_agent: str = None
+):
+    """Record admin operation log"""
+    log = AdminLog(
+        admin_id=admin_id,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        details=details,
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    db.add(log)
+    await db.commit()
 
 
 def generate_activation_code():
@@ -82,6 +132,48 @@ async def admin_login(credentials: AdminLogin, db: AsyncSession = Depends(get_db
     }
 
 
+@router.post("/refresh", response_model=Token)
+async def refresh_admin_token(credentials: HTTPAuthorizationCredentials = Depends(security), db: AsyncSession = Depends(get_db)):
+    """Refresh admin access token"""
+    token = credentials.credentials
+    payload = decode_token(token)
+
+    if payload is None or payload.sub is None or payload.type != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token"
+        )
+
+    try:
+        admin_id = uuid.UUID(payload.sub)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token"
+        )
+
+    result = await db.execute(select(Admin).where(Admin.id == admin_id))
+    admin = result.scalar_one_or_none()
+    if not admin:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token"
+        )
+    if not admin.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin account is deactivated"
+        )
+
+    access_token = create_access_token(data={"sub": str(admin.id)})
+    refresh_token = create_refresh_token(data={"sub": str(admin.id)})
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
+
 @router.post("/create", response_model=AdminResponse, status_code=status.HTTP_201_CREATED)
 async def create_admin(
     admin_data: AdminCreate,
@@ -89,7 +181,7 @@ async def create_admin(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new admin (superadmin only)"""
-    if current_admin.role != "superadmin":
+    if current_admin.role != "super_admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only superadmin can create new admins"
@@ -122,36 +214,42 @@ async def create_admin(
     await db.commit()
     await db.refresh(new_admin)
     
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="create_admin",
+        resource_type="admin",
+        resource_id=str(new_admin.id),
+        details={
+            "username": new_admin.username,
+            "email": new_admin.email,
+            "role": new_admin.role
+        }
+    )
+    
     return new_admin
 
 
 @router.post("/activation-codes/generate", response_model=List[ActivationCodeResponse])
 async def generate_activation_codes(
-    count: int = Query(default=10, ge=1, le=100),
-    config: ActivationCodeCreate = None,
+    request: ActivationCodeGenerateRequest,
     current_admin: Admin = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """Generate a batch of activation codes"""
-    if config is None:
-        config = ActivationCodeCreate(
-            code_type="trial",
-            credits=10,
-            validity_days=30
-        )
-    
     codes = []
-    for _ in range(count):
+    for _ in range(request.count):
         code = ActivationCode(
             code=generate_activation_code(),
-            code_type=config.code_type,
-            credits=config.credits,
-            validity_days=config.validity_days,
-            price=config.price,
-            currency=config.currency,
-            batch_id=config.batch_id,
-            note=config.note,
-            expires_at=config.expires_at
+            code_type=request.code_type,
+            credits=request.credits,
+            validity_days=request.validity_days,
+            price=request.price,
+            currency=request.currency,
+            batch_id=request.batch_id,
+            note=request.note,
+            expires_at=request.expires_at
         )
         db.add(code)
         codes.append(code)
@@ -159,6 +257,22 @@ async def generate_activation_codes(
     await db.commit()
     for code in codes:
         await db.refresh(code)
+    
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="generate_codes",
+        resource_type="activation_code",
+        details={
+            "count": request.count,
+            "code_type": request.code_type,
+            "credits": request.credits,
+            "validity_days": request.validity_days,
+            "batch_id": request.batch_id,
+            "generated_codes": [c.code for c in codes]
+        }
+    )
     
     return codes
 
@@ -174,6 +288,12 @@ async def list_activation_codes(
     db: AsyncSession = Depends(get_db)
 ):
     """List activation codes with filters"""
+    _dlog(
+        "H2",
+        "backend/routers/admin.py:list_activation_codes",
+        "request_enter",
+        {"page": page, "limit": limit, "has_batch_id": bool(batch_id), "is_used": is_used, "code_type": code_type},
+    )
     query = select(ActivationCode)
     
     if batch_id:
@@ -189,10 +309,14 @@ async def list_activation_codes(
     # Apply pagination
     query = query.offset((page - 1) * limit).limit(limit)
     
-    result = await db.execute(query)
-    codes = result.scalars().all()
-    
-    return codes
+    try:
+        result = await db.execute(query)
+        codes = result.scalars().all()
+        _dlog("H2", "backend/routers/admin.py:list_activation_codes", "request_ok", {"count": len(codes)})
+        return codes
+    except Exception as e:
+        _dlog("H2", "backend/routers/admin.py:list_activation_codes", "request_failed", {"err": type(e).__name__})
+        raise
 
 
 @router.get("/users")
@@ -274,6 +398,20 @@ async def create_user(
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
+    
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="create_user",
+        resource_type="user",
+        resource_id=str(new_user.id),
+        details={
+            "username": new_user.username,
+            "email": new_user.email,
+            "phone": new_user.phone
+        }
+    )
 
     return new_user
 
@@ -312,6 +450,94 @@ async def manage_user_credits(
     return {
         "message": f"Successfully {update.action}ed {update.amount} credits. New balance: {user.remaining_credits}"
     }
+
+
+@router.post("/users/{user_id}/reset-password", response_model=MessageResponse)
+async def reset_user_password(
+    user_id: uuid.UUID,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reset user password to phone number"""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    if not user.phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User has no phone number"
+        )
+    
+    # Reset password to phone number
+    new_password = user.phone
+    user.password_hash = get_password_hash(new_password)
+    await db.commit()
+    
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="reset_password",
+        resource_type="user",
+        resource_id=str(user.id),
+        details={
+            "username": user.username,
+            "phone": user.phone
+        }
+    )
+    
+    return {
+        "message": f"Password reset successfully. New password: {new_password}"
+    }
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_verified: Optional[bool] = None
+
+
+@router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: uuid.UUID,
+    update: UserUpdate,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update user profile"""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Update fields if provided
+    if update.username is not None:
+        user.username = update.username
+    if update.email is not None:
+        user.email = update.email
+    if update.phone is not None:
+        user.phone = update.phone
+    if update.is_active is not None:
+        user.is_active = update.is_active
+    if update.is_verified is not None:
+        user.is_verified = update.is_verified
+    
+    await db.commit()
+    await db.refresh(user)
+    
+    return user
 
 
 @router.get("/stats")
@@ -359,3 +585,57 @@ async def get_stats(
             "today": today_usage
         }
     }
+
+
+@router.get("/admins", response_model=List[AdminResponse])
+async def list_admins(
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all admins"""
+    result = await db.execute(select(Admin))
+    admins = result.scalars().all()
+    return admins
+
+
+@router.get("/logs", response_model=List[AdminLogResponse])
+async def list_admin_logs(
+    filters: AdminLogFilter = Depends(),
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """List admin operation logs"""
+    query = select(AdminLog).order_by(AdminLog.created_at.desc())
+    
+    # Apply filters
+    if filters.action:
+        query = query.where(AdminLog.action == filters.action)
+    if filters.resource_type:
+        query = query.where(AdminLog.resource_type == filters.resource_type)
+    if filters.admin_id:
+        query = query.where(AdminLog.admin_id == filters.admin_id)
+    
+    # Apply pagination
+    query = query.offset((filters.page - 1) * filters.limit).limit(filters.limit)
+    
+    result = await db.execute(query)
+    logs = result.scalars().all()
+    
+    # Enrich with admin username
+    log_responses = []
+    for log in logs:
+        log_dict = {
+            "id": log.id,
+            "admin_id": log.admin_id,
+            "admin_username": log.admin.username if log.admin else None,
+            "action": log.action,
+            "resource_type": log.resource_type,
+            "resource_id": log.resource_id,
+            "details": log.details,
+            "ip_address": log.ip_address,
+            "user_agent": log.user_agent,
+            "created_at": log.created_at
+        }
+        log_responses.append(log_dict)
+    
+    return log_responses

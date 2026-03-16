@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Layout, Menu, Tabs, Table, Button, Input, Form, Select, message, Modal, Popconfirm, Tag, Badge, DatePicker, Statistic, Row, Col, Progress, Spin } from 'antd';
-import { UserOutlined, KeyOutlined, BarChartOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined, ArrowLeftOutlined, BgColorsOutlined } from '@ant-design/icons';
+import { Card, Layout, Menu, Tabs, Table, Button, Input, Form, Select, message, Modal, Popconfirm, Tag, Badge, DatePicker, Statistic, Row, Col, Progress, Spin, Typography, Alert, Switch } from 'antd';
+import { UserOutlined, KeyOutlined, BarChartOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined, ArrowLeftOutlined, BgColorsOutlined, TeamOutlined, FileTextOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminAPI, authAPI } from '../../services/api';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { PaletteManager } from './PaletteManager';
+import { AdminLogViewer } from './AdminLogViewer';
 import styles from './AdminPanel.module.css';
 
 const { Header, Content, Sider } = Layout;
 const { TabPane } = Tabs;
 const { Option } = Select;
 const { RangePicker } = DatePicker;
+const { Text } = Typography;
 
 interface User {
   id: string;
@@ -39,13 +41,18 @@ interface ActivationCode {
 }
 
 interface Stats {
-  total_users: number;
-  active_users: number;
-  total_activation_codes: number;
-  used_activation_codes: number;
-  total_credits_used: number;
-  avg_credits_per_user: number;
-  monthly_stats: any[];
+  users: {
+    total: number;
+    active: number;
+  };
+  activation_codes: {
+    total: number;
+    used: number;
+    available: number;
+  };
+  usage: {
+    today: number;
+  };
 }
 
 const AdminPanel: React.FC = () => {
@@ -64,36 +71,52 @@ const AdminPanel: React.FC = () => {
   const [codeValidity, setCodeValidity] = useState(7);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [addUserModalVisible, setAddUserModalVisible] = useState(false);
+  const [editUserModalVisible, setEditUserModalVisible] = useState(false);
+  const [addAdminModalVisible, setAddAdminModalVisible] = useState(false);
   const [addUserForm] = Form.useForm();
+  const [editUserForm] = Form.useForm();
+  const [addAdminForm] = Form.useForm();
+  const [admins, setAdmins] = useState<any[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   const { adminToken, adminLogin, adminLogout, isAdmin } = useAuthStore();
 
   // 监听 auth store 的登录状态变化
   useEffect(() => {
-    try {
-      const loggedIn = !!adminToken || isAdmin;
-      setIsLoggedIn(loggedIn);
-      
-      // 如果登录了，加载数据
-      if (loggedIn) {
-        loadUsers();
-        loadActivationCodes();
-        loadStats();
+    const initializeAdminPanel = async () => {
+      try {
+        setError(null);
+        // 检查 localStorage 中的 token，确保状态一致性
+        const storedToken = localStorage.getItem('admin_access_token');
+        const loggedIn = !!(storedToken || adminToken || isAdmin);
+        setIsLoggedIn(loggedIn);
+        
+        // 如果登录了，加载数据
+        if (loggedIn) {
+          await loadUsers();
+          await loadActivationCodes();
+          await loadStats();
+        }
+      } catch (error) {
+        console.error('Admin panel initialization error:', error);
+        setError('初始化管理后台失败，请刷新页面重试');
+      } finally {
+        // 初始化完成
+        setIsInitializing(false);
       }
-    } catch (error) {
-      console.error('Admin panel initialization error:', error);
-    } finally {
-      // 初始化完成
-      setIsInitializing(false);
-    }
+    };
+    
+    initializeAdminPanel();
   }, [adminToken, isAdmin]);
 
   const loadUsers = async () => {
     try {
       setLoading(true);
       const response = await adminAPI.listUsers();
-      setUsers(response.data);
+      const data = response.data as any;
+      const items = Array.isArray(data) ? data : (data?.items ?? []);
+      setUsers(items);
     } catch (error) {
       console.error('Load users error:', error);
     } finally {
@@ -106,8 +129,21 @@ const AdminPanel: React.FC = () => {
       setLoading(true);
       const response = await adminAPI.listActivationCodes();
       setActivationCodes(response.data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Load activation codes error:', error);
+      // 检查是否是401未授权错误
+      if (error.response?.status === 401) {
+        // 清除过期的管理员token
+        localStorage.removeItem('admin_access_token');
+        localStorage.removeItem('admin_refresh_token');
+        // 重置管理员状态
+      } else if (error.response?.status === 500) {
+        setError('服务器内部错误，请稍后重试');
+      } else if (error.response?.status === 404) {
+        setError('请求的资源不存在');
+      } else {
+        setError(`加载激活码失败: ${error.response?.data?.detail || error.message || '未知错误'}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -119,6 +155,36 @@ const AdminPanel: React.FC = () => {
       setStats(response.data);
     } catch (error) {
       console.error('Load stats error:', error);
+    }
+  };
+
+  const loadAdmins = async () => {
+    try {
+      setLoading(true);
+      const response = await adminAPI.listAdmins();
+      const data = response.data as any;
+      const items = Array.isArray(data) ? data : (data?.items ?? []);
+      setAdmins(items);
+    } catch (error) {
+      console.error('Load admins error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddAdmin = async (values: any) => {
+    try {
+      setLoading(true);
+      await adminAPI.createAdmin(values);
+      message.success('管理员创建成功');
+      setAddAdminModalVisible(false);
+      addAdminForm.resetFields();
+      loadAdmins();
+    } catch (error) {
+      message.error('创建管理员失败');
+      console.error('Add admin error:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -146,9 +212,9 @@ const AdminPanel: React.FC = () => {
     
     try {
       setLoading(true);
-      await adminAPI.manageUserCredits(editingUser.id, {
-        credits: newCredits,
-        action: 'set'
+      await adminAPI.updateUserCredits(editingUser.id, {
+        action: 'set',
+        amount: newCredits
       });
       message.success('用户额度更新成功');
       setCreditModalVisible(false);
@@ -168,6 +234,7 @@ const AdminPanel: React.FC = () => {
       setLoading(true);
       await adminAPI.resetUserPassword(userId);
       message.success('密码重置成功');
+      loadUsers();
     } catch (error) {
       message.error('密码重置失败');
       console.error('Reset password error:', error);
@@ -176,14 +243,53 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  const handleEditUser = (user: User) => {
+    setEditingUser(user);
+    editUserForm.setFieldsValue({
+      username: user.username,
+      email: user.email,
+      phone: user.phone,
+      is_active: user.is_active,
+      is_verified: user.is_verified
+    });
+    setEditUserModalVisible(true);
+  };
+
+  const handleUpdateUser = async () => {
+    if (!editingUser) return;
+    
+    try {
+      setLoading(true);
+      const values = await editUserForm.validateFields();
+      await adminAPI.updateUser(editingUser.id, values);
+      message.success('用户资料更新成功');
+      setEditUserModalVisible(false);
+      setEditingUser(null);
+      editUserForm.resetFields();
+      loadUsers();
+    } catch (error) {
+      message.error('更新用户资料失败');
+      console.error('Update user error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeactivateUser = async (userId: string) => {
     try {
       setLoading(true);
-      await adminAPI.deactivateUser(userId);
-      message.success('用户已禁用');
+      // 找到用户，获取当前状态
+      const user = users.find(u => u.id === userId);
+      if (!user) return;
+      
+      // 调用 updateUser 方法更新用户状态
+      await adminAPI.updateUser(userId, {
+        is_active: !user.is_active
+      });
+      message.success(user.is_active ? '用户已禁用' : '用户已启用');
       loadUsers();
     } catch (error) {
-      message.error('禁用用户失败');
+      message.error('操作失败');
       console.error('Deactivate user error:', error);
     } finally {
       setLoading(false);
@@ -264,6 +370,12 @@ const AdminPanel: React.FC = () => {
           <Button 
             type="primary" 
             size="small" 
+            onClick={() => handleEditUser(record)}
+          >
+            编辑资料
+          </Button>
+          <Button 
+            size="small" 
             onClick={() => {
               setEditingUser(record);
               setNewCredits(record.remaining_credits);
@@ -279,20 +391,50 @@ const AdminPanel: React.FC = () => {
             重置密码
           </Button>
           <Popconfirm
-            title="确定要禁用该用户吗？"
+            title={record.is_active ? "确定要禁用该用户吗？" : "确定要启用该用户吗？"}
             onConfirm={() => handleDeactivateUser(record.id)}
             okText="确定"
             cancelText="取消"
           >
             <Button 
-              danger 
+              danger={record.is_active} 
+              type={!record.is_active ? "primary" : "default"}
               size="small"
             >
-              禁用
+              {record.is_active ? '禁用' : '启用'}
             </Button>
           </Popconfirm>
         </div>
       ),
+    },
+  ];
+
+  const adminColumns = [
+    {
+      title: '用户名',
+      dataIndex: 'username',
+      key: 'username',
+    },
+    {
+      title: '邮箱',
+      dataIndex: 'email',
+      key: 'email',
+    },
+    {
+      title: '角色',
+      dataIndex: 'role',
+      key: 'role',
+      render: (role) => (
+        <Tag color={role === 'admin' ? 'red' : 'blue'}>
+          {role === 'admin' ? '超级管理员' : '普通管理员'}
+        </Tag>
+      ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (time) => new Date(time).toLocaleString(),
     },
   ];
 
@@ -363,6 +505,24 @@ const AdminPanel: React.FC = () => {
     );
   }
 
+  if (error) {
+    return (
+      <div className={styles.errorContainer}>
+        <Alert
+          message="管理后台错误"
+          description={error}
+          type="error"
+          showIcon
+          action={
+            <Button size="small" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
   if (!isLoggedIn) {
     return (
       <div className={styles.loginContainer}>
@@ -386,6 +546,26 @@ const AdminPanel: React.FC = () => {
                 const success = await adminLogin(values.username, values.password);
                 if (success) {
                   message.success('登录成功');
+                  // 登录成功后立即更新状态
+                  setIsLoggedIn(true);
+                  // 等待一小段时间确保token已保存到localStorage
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                  // 重新加载数据
+                  try {
+                    await loadUsers();
+                    await loadActivationCodes();
+                    await loadStats();
+                  } catch (error) {
+                    console.error('Load data error:', error);
+                    // 如果加载数据失败，可能是token问题，重新登录
+                    localStorage.removeItem('admin_access_token');
+                    localStorage.removeItem('admin_refresh_token');
+                    adminLogout();
+                    setError('登录已过期，请重新登录');
+                    setTimeout(() => {
+                      window.location.href = '/admin';
+                    }, 2000);
+                  }
                 } else {
                   message.error('登录失败，请检查用户名和密码');
                 }
@@ -429,10 +609,22 @@ const AdminPanel: React.FC = () => {
   return (
     <Layout className={styles.container}>
       <Header className={styles.header}>
-        <div className={styles.headerTitle}>拼豆图纸生成器 - 管理后台</div>
-        <Button onClick={adminLogout} className={styles.logoutButton}>
-          退出登录
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+          <Button 
+            type="default" 
+            icon={<ArrowLeftOutlined />} 
+            onClick={() => window.location.href = '/'} 
+            style={{ marginRight: 16 }}
+          >
+            返回主页
+          </Button>
+          <div className={styles.headerTitle}>拼豆图纸生成器 - 管理后台</div>
+          <div style={{ marginLeft: 'auto' }}>
+            <Button onClick={adminLogout} className={styles.logoutButton}>
+              退出登录
+            </Button>
+          </div>
+        </div>
       </Header>
       <Layout>
         <Sider width={200} className={styles.sider}>
@@ -448,6 +640,11 @@ const AdminPanel: React.FC = () => {
                 label: '用户管理',
               },
               {
+                key: 'admins',
+                icon: <TeamOutlined />,
+                label: '管理员管理',
+              },
+              {
                 key: 'activation',
                 icon: <KeyOutlined />,
                 label: '激活码管理',
@@ -461,6 +658,11 @@ const AdminPanel: React.FC = () => {
                 key: 'stats',
                 icon: <BarChartOutlined />,
                 label: '统计信息',
+              },
+              {
+                key: 'logs',
+                icon: <FileTextOutlined />,
+                label: '操作日志',
               },
             ]}
           />
@@ -497,6 +699,32 @@ const AdminPanel: React.FC = () => {
                         showSizeChanger: true,
                         showQuickJumper: true,
                       }}
+                    />
+                  </Card>
+                ),
+              },
+              {
+                key: 'admins',
+                label: '管理员管理',
+                children: (
+                  <Card
+                    title="管理员列表"
+                    extra={
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddAdminModalVisible(true)}>
+                          添加管理员
+                        </Button>
+                        <Button onClick={loadAdmins} icon={<ReloadOutlined />}>
+                          刷新
+                        </Button>
+                      </div>
+                    }
+                  >
+                    <Table
+                      columns={adminColumns}
+                      dataSource={admins}
+                      rowKey="id"
+                      loading={loading}
                     />
                   </Card>
                 ),
@@ -602,42 +830,30 @@ const AdminPanel: React.FC = () => {
                       <>
                         <Row gutter={[16, 16]}>
                           <Col span={6}>
-                            <Statistic title="总用户数" value={stats.total_users} />
+                            <Statistic title="总用户数" value={stats.users?.total ?? 0} />
                           </Col>
                           <Col span={6}>
-                            <Statistic title="活跃用户" value={stats.active_users} />
+                            <Statistic title="活跃用户" value={stats.users?.active ?? 0} />
                           </Col>
                           <Col span={6}>
-                            <Statistic title="总激活码" value={stats.total_activation_codes} />
+                            <Statistic title="总激活码" value={stats.activation_codes?.total ?? 0} />
                           </Col>
                           <Col span={6}>
-                            <Statistic title="已使用激活码" value={stats.used_activation_codes} />
+                            <Statistic title="已使用激活码" value={stats.activation_codes?.used ?? 0} />
                           </Col>
                         </Row>
                         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
                           <Col span={12}>
                             <Card>
-                              <Statistic title="总使用额度" value={stats.total_credits_used} />
+                              <Statistic title="今日使用次数" value={stats.usage?.today ?? 0} />
                             </Card>
                           </Col>
                           <Col span={12}>
                             <Card>
-                              <Statistic title="平均用户额度" value={stats.avg_credits_per_user.toFixed(2)} />
+                              <Statistic title="可用激活码" value={stats.activation_codes?.available ?? 0} />
                             </Card>
                           </Col>
                         </Row>
-                        <Card style={{ marginTop: 16 }}>
-                          <h3>月度使用统计</h3>
-                          {stats.monthly_stats.map((item, index) => (
-                            <div key={index} style={{ marginBottom: 12 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                <span>{item.month}</span>
-                                <span>{item.usage} 次</span>
-                              </div>
-                              <Progress percent={(item.usage / 100) * 100} />
-                            </div>
-                          ))}
-                        </Card>
                       </>
                     ) : (
                       <div className={styles.loading}>
@@ -648,6 +864,11 @@ const AdminPanel: React.FC = () => {
                     )}
                   </Card>
                 ),
+              },
+              {
+                key: 'logs',
+                label: '操作日志',
+                children: <AdminLogViewer />,
               },
               {
                 key: 'palettes',
@@ -669,19 +890,16 @@ const AdminPanel: React.FC = () => {
         <Form>
           <Form.Item
             label="用户"
-            name="username"
           >
-            <Input value={editingUser?.username} disabled />
+            <Input value={editingUser?.username || ''} disabled />
           </Form.Item>
           <Form.Item
             label="当前额度"
-            name="currentCredits"
           >
-            <Input value={editingUser?.remaining_credits} disabled />
+            <Input value={editingUser?.remaining_credits || 0} disabled />
           </Form.Item>
           <Form.Item
             label="新额度"
-            name="newCredits"
             rules={[{ required: true, message: '请输入新额度' }]}
           >
             <Input
@@ -742,6 +960,108 @@ const AdminPanel: React.FC = () => {
             ]}
           >
             <Input.Password placeholder="请输入密码" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑用户资料模态框 */}
+      <Modal
+        title="编辑用户资料"
+        open={editUserModalVisible}
+        onCancel={() => {
+          setEditUserModalVisible(false);
+          setEditingUser(null);
+          editUserForm.resetFields();
+        }}
+        onOk={handleUpdateUser}
+        confirmLoading={loading}
+      >
+        <Form form={editUserForm} layout="vertical">
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[{ required: true, message: '请输入用户名' }]}
+          >
+            <Input placeholder="请输入用户名" />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label="邮箱"
+            rules={[{ type: 'email', message: '请输入有效的邮箱地址' }]}
+          >
+            <Input placeholder="请输入邮箱" />
+          </Form.Item>
+          <Form.Item
+            name="phone"
+            label="手机号"
+            rules={[{ pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' }]}
+          >
+            <Input placeholder="请输入手机号" />
+          </Form.Item>
+          <Form.Item
+            name="is_active"
+            label="状态"
+          >
+            <Switch checkedChildren="活跃" unCheckedChildren="禁用" />
+          </Form.Item>
+          <Form.Item
+            name="is_verified"
+            label="是否已验证"
+          >
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 添加管理员模态框 */}
+      <Modal
+        title="添加管理员"
+        open={addAdminModalVisible}
+        onCancel={() => {
+          setAddAdminModalVisible(false);
+          addAdminForm.resetFields();
+        }}
+        onOk={() => addAdminForm.submit()}
+        confirmLoading={loading}
+      >
+        <Form
+          form={addAdminForm}
+          onFinish={handleAddAdmin}
+          layout="vertical"
+        >
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[{ required: true, message: '请输入用户名' }]}
+          >
+            <Input placeholder="请输入管理员用户名" />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label="邮箱"
+            rules={[{ required: true, type: 'email', message: '请输入有效的邮箱地址' }]}
+          >
+            <Input placeholder="请输入邮箱" />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[
+              { required: true, message: '请输入密码' },
+              { min: 6, message: '密码至少6位' }
+            ]}
+          >
+            <Input.Password placeholder="请输入密码" />
+          </Form.Item>
+          <Form.Item
+            name="role"
+            label="角色"
+            rules={[{ required: true, message: '请选择角色' }]}
+          >
+            <Select placeholder="请选择角色">
+              <Option value="admin">超级管理员</Option>
+              <Option value="staff">普通管理员</Option>
+            </Select>
           </Form.Item>
         </Form>
       </Modal>

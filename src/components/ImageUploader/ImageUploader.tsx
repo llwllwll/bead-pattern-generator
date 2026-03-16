@@ -13,8 +13,8 @@ const MAX_SIZE = 5 * 1024 * 1024;
 
 export const ImageUploader: React.FC = () => {
   const setFile = useImageStore((s) => s.setFile);
+  const editedDataUrl = useImageStore((s) => s.editedDataUrl);
   const { params } = usePatternStore();
-  const [previewUrl, setPreviewUrl] = useState<string>();
   const [info, setInfo] = useState<{ width: number; height: number; sizeKB: number }>();
 
   // 计算总颗粒数
@@ -36,7 +36,6 @@ export const ImageUploader: React.FC = () => {
         const img = new Image();
         img.onload = () => {
           setFile(file, dataUrl, img.width, img.height);
-          setPreviewUrl(dataUrl);
           setInfo({
             width: img.width,
             height: img.height,
@@ -104,7 +103,7 @@ export const ImageUploader: React.FC = () => {
         </p>
       </Dragger>
       
-      {previewUrl && info && (
+      {editedDataUrl && info && (
         <Space direction="vertical" style={{ 
           marginTop: 'var(--spacing-md)',
           padding: 'var(--spacing-md)',
@@ -112,7 +111,7 @@ export const ImageUploader: React.FC = () => {
           borderRadius: 'var(--border-radius)'
         }}>
           <img
-            src={previewUrl}
+            src={editedDataUrl}
             alt="preview"
             style={{ 
               maxWidth: '100%', 

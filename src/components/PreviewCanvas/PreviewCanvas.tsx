@@ -20,10 +20,15 @@ export const PreviewCanvas: React.FC = () => {
   const [scale, setScale] = useState(100);
   const [showGrid, setShowGrid] = useState(true);
   const [showIndex, setShowIndex] = useState(false);
+  const [showBackground, setShowBackground] = useState(true);
   const [hoverInfo, setHoverInfo] = useState<string>('');
   const [activeTab, setActiveTab] = useState('color');
   const [selectedColorId, setSelectedColorId] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState(false);
+  const [offsetX, setOffsetX] = useState(0);
+  const [offsetY, setOffsetY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   // 获取当前色板
   const currentPalette = useMemo(() => {
@@ -65,27 +70,29 @@ export const PreviewCanvas: React.FC = () => {
       const contentWidth = params.width * cellSize;
       const contentHeight = params.height * cellSize;
 
-      // 计算缩放比例以适应容器
-      const scaleX = containerWidth / contentWidth;
-      const scaleY = containerHeight / contentHeight;
-      const fitScale = Math.min(scaleX, scaleY);
+      // 不计算 fitScale，直接使用实际的 cellSize
+      const actualCellSize = cellSize;
 
-      const actualCellSize = cellSize * fitScale;
-
-      // 设置 canvas 大小
-      canvas.width = containerWidth;
-      canvas.height = containerHeight;
+      // 设置 canvas 大小为内容大小，这样超出容器的部分可以通过滚动查看
+      canvas.width = contentWidth;
+      canvas.height = contentHeight;
 
       // 清空画布
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 计算居中偏移
-      const offsetX = (containerWidth - contentWidth * fitScale) / 2;
-      const offsetY = (containerHeight - contentHeight * fitScale) / 2;
+      // 填充默认背景色（白色），只在 showBackground 为 true 时执行
+      if (showBackground) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // 计算居中偏移为 0，因为我们不再需要适应容器
+      const centerOffsetX = 0;
+      const centerOffsetY = 0;
 
       // 性能优化：批量绘制
       ctx.save();
-      ctx.translate(offsetX, offsetY);
+      ctx.translate(centerOffsetX + offsetX, centerOffsetY + offsetY);
 
       // 绘制所有单元格
       patternCells.forEach((cell) => {
@@ -106,7 +113,7 @@ export const PreviewCanvas: React.FC = () => {
       });
 
       // 绘制编号（字母+数字格式，如 A1, B12, H7）
-      if ((showIndex || activeTab === 'index') && fitScale > 0.3) {
+      if ((showIndex || activeTab === 'index') && actualCellSize > 3) {
         ctx.font = `${actualCellSize * 0.35}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -133,7 +140,7 @@ export const PreviewCanvas: React.FC = () => {
       ctx.restore();
       setIsRendering(false);
     });
-  }, [patternCells, colorMap, params.width, params.height, scale, showGrid, showIndex, activeTab, getColorCode]);
+  }, [patternCells, colorMap, params.width, params.height, scale, showGrid, showIndex, activeTab, getColorCode, offsetX, offsetY]);
 
   // 防抖渲染
   const debouncedRender = useMemo(
@@ -159,9 +166,28 @@ export const PreviewCanvas: React.FC = () => {
     }
   }, [patternCells, scale, showGrid, showIndex, activeTab, debouncedRender]);
 
-  // 处理鼠标移动显示信息
+  // 处理鼠标按下事件，开始拖拽
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+    },
+    []
+  );
+
+  // 处理鼠标移动事件，更新拖拽偏移量
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (isDragging) {
+        const deltaX = e.clientX - dragStart.x;
+        const deltaY = e.clientY - dragStart.y;
+        setOffsetX((prev) => prev + deltaX);
+        setOffsetY((prev) => prev + deltaY);
+        setDragStart({ x: e.clientX, y: e.clientY });
+        renderCanvas();
+        return;
+      }
+
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -170,19 +196,12 @@ export const PreviewCanvas: React.FC = () => {
       const y = e.clientY - rect.top;
 
       const cellSize = (scale / 100) * 8;
-      const contentWidth = params.width * cellSize;
-      const contentHeight = params.height * cellSize;
-      const containerWidth = 400;
-      const containerHeight = 300;
-      const scaleX = containerWidth / contentWidth;
-      const scaleY = containerHeight / contentHeight;
-      const fitScale = Math.min(scaleX, scaleY, 1);
-      const actualCellSize = cellSize * fitScale;
-      const offsetX = (containerWidth - contentWidth * fitScale) / 2;
-      const offsetY = (containerHeight - contentHeight * fitScale) / 2;
+      const actualCellSize = cellSize;
+      const centerOffsetX = 0;
+      const centerOffsetY = 0;
 
-      const cellX = Math.floor((x - offsetX) / actualCellSize);
-      const cellY = Math.floor((y - offsetY) / actualCellSize);
+      const cellX = Math.floor((x - centerOffsetX - offsetX) / actualCellSize);
+      const cellY = Math.floor((y - centerOffsetY - offsetY) / actualCellSize);
 
       if (
         cellX < 0 ||
@@ -207,8 +226,18 @@ export const PreviewCanvas: React.FC = () => {
         );
       }
     },
-    [patternCells, params.width, params.height, scale, currentPalette]
+    [patternCells, params.width, params.height, scale, currentPalette, isDragging, dragStart, offsetX, offsetY, renderCanvas]
   );
+
+  // 处理鼠标释放事件，结束拖拽
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // 处理鼠标离开事件，结束拖拽
+  const handleMouseLeave = useCallback(() => {
+    setIsDragging(false);
+  }, []);
 
   const items = [
     { key: 'color', label: '彩色视图' },
@@ -290,6 +319,8 @@ export const PreviewCanvas: React.FC = () => {
           <Text type="secondary">显示网格</Text>
           <Switch checked={showIndex} onChange={setShowIndex} size="small" />
           <Text type="secondary">显示编号</Text>
+          <Switch checked={showBackground} onChange={setShowBackground} size="small" />
+          <Text type="secondary">显示背景</Text>
         </Space>
         <Tabs
           activeKey={activeTab}
@@ -316,8 +347,14 @@ export const PreviewCanvas: React.FC = () => {
               >
                 <canvas
                   ref={canvasRef}
+                  onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
-                  style={{ display: 'block' }}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseLeave}
+                  style={{ 
+                    display: 'block',
+                    cursor: isDragging ? 'grabbing' : 'grab'
+                  }}
                 />
                 {isRendering && (
                   <div

@@ -100,6 +100,28 @@ class UsageRecord(Base):
     user = relationship("User", back_populates="usage_records")
 
 
+class AdminLog(Base):
+    __tablename__ = "admin_logs"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    admin_id = Column(UUID(as_uuid=True), ForeignKey("admins.id", ondelete="SET NULL"), nullable=True)
+    
+    # Action info
+    action = Column(String(50), nullable=False)  # create_user, create_admin, generate_codes, etc.
+    resource_type = Column(String(50))  # user, admin, activation_code, palette, etc.
+    resource_id = Column(String(100))  # ID of the affected resource
+    
+    # Details
+    details = Column(JSON)  # Store additional details as JSON
+    ip_address = Column(String(45))
+    user_agent = Column(Text)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    admin = relationship("Admin", back_populates="logs")
+
+
 class SubscriptionPlan(Base):
     __tablename__ = "subscription_plans"
     
@@ -178,6 +200,9 @@ class Admin(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    logs = relationship("AdminLog", back_populates="admin", cascade="all, delete-orphan")
 
 
 class ColorPalette(Base):
