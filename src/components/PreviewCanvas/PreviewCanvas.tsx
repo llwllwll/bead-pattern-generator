@@ -16,7 +16,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, wait: number): (.
 export const PreviewCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-  const { params, patternCells, paletteList, updateColorInPalette } = usePatternStore();
+  const { params, patternCells, currentSeries } = usePatternStore();
   const [scale, setScale] = useState(100);
   const [showGrid, setShowGrid] = useState(true);
   const [showIndex, setShowIndex] = useState(false);
@@ -30,27 +30,22 @@ export const PreviewCanvas: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // 获取当前色板
-  const currentPalette = useMemo(() => {
-    return paletteList.find((p) => p.id === params.paletteId);
-  }, [paletteList, params.paletteId]);
-
   // 创建颜色映射表，提高查找效率
   const colorMap = useMemo(() => {
     const map = new Map<string, string>();
-    if (currentPalette) {
-      currentPalette.colors.forEach((color) => {
+    if (currentSeries) {
+      currentSeries.colors.forEach((color) => {
         map.set(color.id, color.hex);
       });
     }
     return map;
-  }, [currentPalette]);
+  }, [currentSeries]);
 
   // 获取颜色的编号（字母+数字格式）
   const getColorCode = useCallback((colorId: string): string => {
-    const color = currentPalette?.colors.find((c) => c.id === colorId);
+    const color = currentSeries?.colors.find((c) => c.id === colorId);
     return color?.colorCode || '';
-  }, [currentPalette]);
+  }, [currentSeries]);
 
   // 渲染函数 - 使用原生 Canvas API 替代 Fabric.js 以提高性能
   const renderCanvas = useCallback(() => {
@@ -219,14 +214,14 @@ export const PreviewCanvas: React.FC = () => {
         return;
       }
 
-      const color = currentPalette?.colors.find((c) => c.id === cell.colorId);
+      const color = currentSeries?.colors.find((c) => c.id === cell.colorId);
       if (color) {
         setHoverInfo(
           `位置 (${cellX + 1}, ${cellY + 1}) - ${color.colorCode || ''} ${color.name || ''} ${color.hex}`
         );
       }
     },
-    [patternCells, params.width, params.height, scale, currentPalette, isDragging, dragStart, offsetX, offsetY, renderCanvas]
+    [patternCells, params.width, params.height, scale, currentSeries, isDragging, dragStart, offsetX, offsetY, renderCanvas]
   );
 
   // 处理鼠标释放事件，结束拖拽
@@ -249,7 +244,7 @@ export const PreviewCanvas: React.FC = () => {
 
   // 获取所有可用颜色选项（用于批量替换）
   const colorOptions = useMemo(() => {
-    return currentPalette?.colors.map((c) => ({
+    return currentSeries?.colors.map((c) => ({
       value: c.id,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -265,7 +260,7 @@ export const PreviewCanvas: React.FC = () => {
       ),
       colorCode: c.colorCode,
     })) || [];
-  }, [currentPalette]);
+  }, [currentSeries]);
 
   return (
     <Card size="small" title="实时预览">
@@ -389,7 +384,7 @@ export const PreviewCanvas: React.FC = () => {
                   gap: 8,
                 }}
               >
-                {currentPalette?.colors.map((c) => (
+                {currentSeries?.colors.map((c) => (
                   <div
                     key={c.id}
                     style={{
@@ -437,7 +432,7 @@ export const PreviewCanvas: React.FC = () => {
               >
                 <Text>批量替换颜色:</Text>
                 {(() => {
-                  const color = currentPalette?.colors.find(
+                  const color = currentSeries?.colors.find(
                     (c) => c.id === selectedColorId
                   );
                   return color ? (
@@ -462,7 +457,7 @@ export const PreviewCanvas: React.FC = () => {
                         onChange={(targetColorId) => {
                           if (targetColorId) {
                             // 批量替换所有使用该颜色的单元格
-                            updateColorInPalette(params.paletteId, selectedColorId, targetColorId, true);
+                            usePatternStore.getState().updateColorInPattern(params.seriesId, selectedColorId, targetColorId, true);
                             setSelectedColorId(null);
                           }
                         }}

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { paletteApi } from '../services/api';
+import { paletteApi, type Color, type HierarchicalBrand, type HierarchicalSeries } from '../services/api';
 
 export type DitheringMode = 'none' | 'floyd-steinberg' | 'atkinson';
 
@@ -10,18 +10,29 @@ export interface PaletteColor {
   hex: string;
 }
 
-export interface Palette {
+export interface Series {
   id: string;
   name: string;
   code: string;
+  brandId: string;
+  brandName: string;
   colors: PaletteColor[];
+  isDefault: boolean;
+}
+
+export interface Brand {
+  id: string;
+  name: string;
+  code: string;
+  series: Series[];
 }
 
 export interface PatternParams {
   width: number;
   height: number;
   lockRatio: boolean;
-  paletteId: string;
+  brandId: string;
+  seriesId: string;
   beadSize: number;  // 拼豆颗粒尺寸：2.6, 5, 10
   edgeSmooth: number;
   colorTolerance: number;
@@ -38,41 +49,33 @@ export interface PatternCell {
 
 export interface PatternState {
   params: PatternParams;
-  paletteList: Palette[];
+  brandList: Brand[];
+  seriesList: Series[];
+  currentSeries: Series | null;
   patternCells: PatternCell[];
   isProcessing: boolean;
   error?: string;
 
   setParams: (params: Partial<PatternParams>) => void;
-  setPaletteList: (palettes: Palette[]) => void;
+  setBrandList: (brands: Brand[]) => void;
+  setSeriesList: (series: Series[]) => void;
+  setCurrentSeries: (series: Series | null) => void;
   setPatternCells: (cells: PatternCell[]) => void;
   setProcessing: (val: boolean) => void;
   setError: (msg?: string) => void;
-  fetchPalettes: () => Promise<void>;
-  updateColorInPalette: (paletteId: string, sourceColorId: string, targetColorId: string, isBatch?: boolean) => void;
+  fetchHierarchy: () => Promise<void>;
+  selectBrand: (brandId: string) => void;
+  selectSeries: (seriesId: string) => void;
+  updateColorInPattern: (paletteId: string, sourceColorId: string, targetColorId: string, isBatch?: boolean) => void;
 }
-
-// 默认色板（在从后端加载前使用）
-const defaultPalettes: Palette[] = [
-  {
-    id: 'perler',
-    name: 'Perler 标准色板',
-    code: 'perler',
-    colors: Array.from({ length: 50 }).map((_, i) => ({
-      id: `perler-${i}`,
-      colorCode: `${String.fromCharCode(65 + Math.floor(i / 10))}${(i % 10) + 1}`,
-      name: `颜色 ${i + 1}`,
-      hex: `#${((i * 997) % 0xffffff).toString(16).padStart(6, '0')}`
-    }))
-  }
-];
 
 export const usePatternStore = create<PatternState>((set, get) => ({
   params: {
     width: 50,
     height: 50,
     lockRatio: true,
-    paletteId: 'perler',
+    brandId: '',
+    seriesId: '',
     beadSize: 5,  // 默认5mm标准拼豆
     edgeSmooth: 30,
     colorTolerance: 20,
@@ -80,7 +83,9 @@ export const usePatternStore = create<PatternState>((set, get) => ({
     transparencyMode: 'keep',
     transparencyColor: '#ffffff'
   },
-  paletteList: defaultPalettes,
+  brandList: [],
+  seriesList: [],
+  currentSeries: null,
   patternCells: [],
   isProcessing: false,
 
@@ -89,7 +94,11 @@ export const usePatternStore = create<PatternState>((set, get) => ({
       params: { ...state.params, ...params }
     })),
 
-  setPaletteList: (paletteList) => set({ paletteList }),
+  setBrandList: (brandList) => set({ brandList }),
+  
+  setSeriesList: (seriesList) => set({ seriesList }),
+  
+  setCurrentSeries: (currentSeries) => set({ currentSeries }),
 
   setPatternCells: (patternCells) => set({ patternCells }),
 
@@ -97,58 +106,130 @@ export const usePatternStore = create<PatternState>((set, get) => ({
 
   setError: (error) => set({ error }),
 
-  // 从后端获取色库列表
-  fetchPalettes: async () => {
+  // 从后端获取完整层级数据（品牌 -> 系列 -> 颜色）
+  fetchHierarchy: async () => {
     try {
-      const palettes = await paletteApi.getPublicPalettes();
-      if (palettes && palettes.length > 0) {
-        // 转换后端返回的数据格式，添加 colors 数组
-        const transformedPalettes = await Promise.all(
-          palettes.map(async (palette: any) => {
-            try {
-              // 获取每个色库的详细信息（包含颜色列表）
-              const paletteDetail = await paletteApi.getPublicPalette(palette.id);
-              return {
-                id: palette.id,
-                name: palette.name,
-                code: palette.code,
-                colors: (paletteDetail.colors || []).map((color: any) => ({
-                  id: color.id,
-                  colorCode: color.color_code,
-                  name: color.name,
-                  hex: color.hex
-                }))
-              };
-            } catch (error) {
-              console.error(`Failed to fetch palette details for ${palette.id}:`, error);
-              // 如果获取详细信息失败，返回基本信息
-              return {
-                id: palette.id,
-                name: palette.name,
-                code: palette.code,
-                colors: []
-              };
-            }
-          })
-        );
+      const hierarchy: HierarchicalBrand[] = await paletteApi.getPublicHierarchy();
+      
+      if (hierarchy && hierarchy.length > 0) {
+        // 转换数据格式
+        const brands: Brand[] = hierarchy.map(brand => ({
+          id: brand.id,
+          name: brand.name,
+          code: brand.code,
+          series: brand.series.map(series => ({
+            id: series.id,
+            name: series.name,
+            code: series.code,
+            brandId: brand.id,
+            brandName: brand.name,
+            isDefault: series.is_default,
+            colors: series.colors.map(color => ({
+              id: color.id,
+              colorCode: color.color_code,
+              name: color.name,
+              hex: color.hex
+            }))
+          }))
+        }));
+
+        // 提取所有系列
+        const allSeries: Series[] = brands.flatMap(b => b.series);
         
-        set({ paletteList: transformedPalettes });
-        // 如果当前选中的色板不在列表中，选择第一个
-        const currentId = get().params.paletteId;
-        const exists = transformedPalettes.some((p: Palette) => p.id === currentId);
-        if (!exists && transformedPalettes.length > 0) {
+        set({ 
+          brandList: brands,
+          seriesList: allSeries
+        });
+
+        // 如果当前选中的品牌不在列表中，选择第一个
+        const currentBrandId = get().params.brandId;
+        const currentSeriesId = get().params.seriesId;
+        
+        const currentBrand = brands.find(b => b.id === currentBrandId);
+        const currentSeries = allSeries.find(s => s.id === currentSeriesId);
+        
+        if (!currentBrand && brands.length > 0) {
+          // 选择第一个品牌
+          const firstBrand = brands[0];
+          const firstSeries = firstBrand.series[0] || allSeries[0];
+          
           set((state) => ({
-            params: { ...state.params, paletteId: transformedPalettes[0].id }
+            params: { 
+              ...state.params, 
+              brandId: firstBrand.id,
+              seriesId: firstSeries?.id || ''
+            },
+            currentSeries: firstSeries || null
           }));
+        } else if (!currentSeries && allSeries.length > 0) {
+          // 保持品牌，选择该品牌的第一个系列
+          const brandSeries = currentBrand?.series || allSeries;
+          const defaultSeriesInBrand = brandSeries.find(s => s.isDefault) || brandSeries[0];
+          
+          set((state) => ({
+            params: { 
+              ...state.params, 
+              seriesId: defaultSeriesInBrand?.id || ''
+            },
+            currentSeries: defaultSeriesInBrand || null
+          }));
+        } else {
+          set({ currentSeries: currentSeries || null });
         }
       }
     } catch (error) {
-      console.error('Failed to fetch palettes:', error);
+      console.error('Failed to fetch hierarchy:', error);
+    }
+  },
+
+  // 选择品牌
+  selectBrand: (brandId: string) => {
+    const { brandList } = get();
+    const brand = brandList.find(b => b.id === brandId);
+    
+    if (brand && brand.series.length > 0) {
+      // 选择该品牌的默认系列，或第一个系列
+      const defaultSeries = brand.series.find(s => s.isDefault) || brand.series[0];
+      
+      set((state) => ({
+        params: {
+          ...state.params,
+          brandId,
+          seriesId: defaultSeries.id
+        },
+        currentSeries: defaultSeries
+      }));
+    } else {
+      set((state) => ({
+        params: {
+          ...state.params,
+          brandId,
+          seriesId: ''
+        },
+        currentSeries: null
+      }));
+    }
+  },
+
+  // 选择系列
+  selectSeries: (seriesId: string) => {
+    const { seriesList } = get();
+    const series = seriesList.find(s => s.id === seriesId);
+    
+    if (series) {
+      set((state) => ({
+        params: {
+          ...state.params,
+          brandId: series.brandId,
+          seriesId
+        },
+        currentSeries: series
+      }));
     }
   },
 
   // 批量替换颜色（将使用 sourceColorId 的单元格替换为 targetColorId）
-  updateColorInPalette: (paletteId: string, sourceColorId: string, targetColorId: string, isBatch = false) =>
+  updateColorInPattern: (paletteId: string, sourceColorId: string, targetColorId: string, isBatch = false) =>
     set((state) => {
       // 如果是批量替换，更新所有使用该颜色的单元格
       if (isBatch) {

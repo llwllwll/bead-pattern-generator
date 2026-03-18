@@ -1,6 +1,6 @@
 import { debounce } from 'lodash-es';
 import type { ImageAdjustments } from '../stores/useImageStore';
-import type { PatternParams, PatternCell, Palette } from '../stores/usePatternStore';
+import type { PatternParams, PatternCell, Series } from '../stores/usePatternStore';
 
 export const applyAdjustmentsToImage = async (
   srcDataUrl: string,
@@ -54,10 +54,10 @@ export const applyAdjustmentsToImage = async (
   return canvas.toDataURL('image/png');
 };
 
-const getNearestPaletteColorId = (r: number, g: number, b: number, palette: Palette): string => {
-  let bestId = palette.colors[0]?.id ?? '';
+const getNearestPaletteColorId = (r: number, g: number, b: number, series: Series): string => {
+  let bestId = series.colors[0]?.id ?? '';
   let bestDist = Number.MAX_VALUE;
-  palette.colors.forEach((c) => {
+  series.colors.forEach((c) => {
     const hex = c.hex.replace('#', '');
     const pr = parseInt(hex.slice(0, 2), 16);
     const pg = parseInt(hex.slice(2, 4), 16);
@@ -74,7 +74,7 @@ const getNearestPaletteColorId = (r: number, g: number, b: number, palette: Pale
 export const generatePatternFromImage = async (
   srcDataUrl: string,
   params: PatternParams,
-  palette: Palette
+  series: Series
 ): Promise<PatternCell[]> => {
   const img = new Image();
   img.src = srcDataUrl;
@@ -112,7 +112,7 @@ export const generatePatternFromImage = async (
         }
       }
 
-      const colorId = getNearestPaletteColorId(r, g, b, palette);
+      const colorId = getNearestPaletteColorId(r, g, b, series);
       cells.push({ x, y, colorId });
     }
   }

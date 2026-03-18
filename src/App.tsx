@@ -54,7 +54,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [aboutClickCount, setAboutClickCount] = useState(0);
-  const [aboutClickTimer, setAboutClickTimer] = useState<NodeJS.Timeout | null>(null);
+  const [aboutClickTimer, setAboutClickTimer] = useState<number | null>(null);
   const [changePasswordModalVisible, setChangePasswordModalVisible] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -72,8 +72,8 @@ const App: React.FC = () => {
   }, [setHasSeenTutorial]);
 
   useEffect(() => {
-    // 初始化加载色库列表
-    patternState.fetchPalettes();
+    // 初始化加载色库层级数据
+    patternState.fetchHierarchy();
   }, []);
 
   useEffect(() => {
@@ -145,13 +145,13 @@ const App: React.FC = () => {
     
     try {
       console.log('开始生成图纸');
-      const palette = patternState.paletteList.find(p => p.id === patternState.params.paletteId);
-      if (!palette) {
-        message.error('未找到选中的色板');
+      const series = patternState.currentSeries;
+      if (!series) {
+        message.error('未找到选中的系列');
         return;
       }
 
-      console.log('找到色板:', palette.name);
+      console.log('找到系列:', series.name);
 
       // 先调用后端 API 扣除额度
       try {
@@ -170,7 +170,7 @@ const App: React.FC = () => {
       const cells = await generatePatternFromImage(
         imageState.editedDataUrl,
         patternState.params,
-        palette
+        series
       );
       
       console.log('生成图纸成功，细胞数量:', cells.length);

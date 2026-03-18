@@ -55,7 +55,7 @@ app.include_router(auth_router)
 app.include_router(activation_router)
 app.include_router(pattern_router)
 app.include_router(admin_router)
-app.include_router(palette_router)
+app.include_router(palette_router, prefix="/api")
 
 
 @app.get("/")
@@ -76,4 +76,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=settings.DEBUG)
+    uvicorn.run("main:app", host="0.0.0.0", port=8002, reload=settings.DEBUG)

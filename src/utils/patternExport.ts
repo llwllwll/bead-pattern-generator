@@ -20,9 +20,8 @@ export const generatePatternImage = (
   withIndex: boolean,
   title?: string
 ): void => {
-  const { params, patternCells, paletteList } = patternState;
-  const palette = paletteList.find((p) => p.id === params.paletteId);
-  if (!palette || patternCells.length === 0) return;
+  const { params, patternCells, currentSeries } = patternState;
+  if (!currentSeries || patternCells.length === 0) return;
 
   // 配置参数
   const scale = 3; // 缩放倍数
@@ -37,7 +36,7 @@ export const generatePatternImage = (
   // 统计颜色使用情况
   const colorUsageMap = new Map<string, ColorUsage>();
   patternCells.forEach((cell) => {
-    const color = palette.colors.find((c) => c.id === cell.colorId);
+    const color = currentSeries.colors.find((c) => c.id === cell.colorId);
     if (color) {
       const existing = colorUsageMap.get(color.id);
       if (existing) {
@@ -143,7 +142,7 @@ export const generatePatternImage = (
 
   // 绘制每个单元格
   patternCells.forEach((cell) => {
-    const color = palette.colors.find((c) => c.id === cell.colorId);
+    const color = currentSeries.colors.find((c) => c.id === cell.colorId);
     if (!color) return;
 
     const x = offsetX + cell.x * cellSize;

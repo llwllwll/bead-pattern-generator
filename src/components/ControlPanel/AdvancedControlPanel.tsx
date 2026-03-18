@@ -16,7 +16,7 @@ const ditheringDescriptions: Record<string, string> = {
 };
 
 export const AdvancedControlPanel: React.FC = () => {
-  const { params, setParams, paletteList, setPatternCells, setProcessing } = usePatternStore();
+  const { params, setParams, currentSeries, setPatternCells, setProcessing } = usePatternStore();
   const { editedDataUrl } = useImageStore();
 
   // 更新预览函数
@@ -26,20 +26,19 @@ export const AdvancedControlPanel: React.FC = () => {
       return;
     }
 
+    if (!currentSeries) {
+      message.warning('请先选择系列');
+      return;
+    }
+
     message.loading('正在更新预览...', 0);
     setProcessing(true);
     
     try {
-      const palette = paletteList.find(p => p.id === params.paletteId);
-      if (!palette) {
-        message.error('未找到选中的色板');
-        return;
-      }
-
       const cells = await generatePatternFromImage(
         editedDataUrl,
         params,
-        palette
+        currentSeries
       );
       
       setPatternCells(cells);
@@ -53,13 +52,8 @@ export const AdvancedControlPanel: React.FC = () => {
     }
   };
 
-  // 获取当前色板的颜色选项
-  const currentPalette = useMemo(() => {
-    return paletteList.find((p) => p.id === params.paletteId);
-  }, [paletteList, params.paletteId]);
-
   const colorOptions = useMemo(() => {
-    return currentPalette?.colors.map((c) => ({
+    return currentSeries?.colors.map((c) => ({
       value: c.hex,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -74,7 +68,7 @@ export const AdvancedControlPanel: React.FC = () => {
         </div>
       ),
     })) || [];
-  }, [currentPalette]);
+  }, [currentSeries]);
 
   return (
     <div style={{ marginBottom: 'var(--spacing-lg)' }}>

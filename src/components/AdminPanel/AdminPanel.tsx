@@ -424,7 +424,7 @@ const AdminPanel: React.FC = () => {
       title: '角色',
       dataIndex: 'role',
       key: 'role',
-      render: (role) => (
+      render: (role: string) => (
         <Tag color={role === 'admin' ? 'red' : 'blue'}>
           {role === 'admin' ? '超级管理员' : '普通管理员'}
         </Tag>
@@ -434,7 +434,7 @@ const AdminPanel: React.FC = () => {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (time) => new Date(time).toLocaleString(),
+      render: (time: string | Date) => new Date(time).toLocaleString(),
     },
   ];
 

@@ -159,6 +159,21 @@ export const SizeControlPanel: React.FC<SizeControlPanelProps> = ({ onGenerate }
             </Text>
           </div>
 
+          <div style={{
+            padding: 'var(--spacing-sm)',
+            backgroundColor: 'rgba(46, 204, 113, 0.08)',
+            borderRadius: '8px',
+            marginBottom: 'var(--spacing-md)',
+            textAlign: 'center'
+          }}>
+            <Text style={{ fontSize: '16px', fontWeight: 600, color: '#27ae60' }}>
+              总颗粒数: {params.width * params.height} 颗
+            </Text>
+            <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 4 }}>
+              ({params.width} × {params.height})
+            </Text>
+          </div>
+
           <Button
             type="primary"
             icon={<FileAddOutlined />}

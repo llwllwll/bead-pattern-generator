@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Select, Typography, Space, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { usePatternStore } from '../../stores/usePatternStore';
@@ -7,14 +7,37 @@ import styles from './PaletteSelector.module.css';
 const { Text } = Typography;
 
 export const PaletteSelector: React.FC = () => {
-  const { paletteList, params, setParams, fetchPalettes } = usePatternStore();
+  const { 
+    brandList, 
+    currentSeries, 
+    params, 
+    selectBrand, 
+    selectSeries, 
+    fetchHierarchy 
+  } = usePatternStore();
 
-  const options = paletteList.map((p) => ({
-    value: p.id,
-    label: p.name
+  // 获取当前选中的品牌
+  const currentBrand = brandList.find(b => b.id === params.brandId);
+  
+  // 获取当前品牌下的所有系列
+  const currentBrandSeries = currentBrand?.series || [];
+
+  // 组件挂载时获取层级数据
+  useEffect(() => {
+    fetchHierarchy();
+  }, []);
+
+  // 品牌选项
+  const brandOptions = brandList.map((brand) => ({
+    value: brand.id,
+    label: brand.name
   }));
 
-  const currentPalette = paletteList.find((p) => p.id === params.paletteId) ?? paletteList[0];
+  // 系列选项
+  const seriesOptions = currentBrandSeries.map((series) => ({
+    value: series.id,
+    label: series.name
+  }));
 
   return (
     <div className={styles.paletteSection}>
@@ -24,23 +47,44 @@ export const PaletteSelector: React.FC = () => {
           <Button
             size="small"
             icon={<ReloadOutlined />}
-            title="刷新色板"
-            onClick={fetchPalettes}
+            title="刷新色库"
+            onClick={fetchHierarchy}
           />
         </div>
       </div>
 
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Select
-          value={params.paletteId}
-          options={options}
-          style={{ width: '100%' }}
-          onChange={(val) => setParams({ paletteId: val })}
-          size="small"
-        />
-        <Text type="secondary">当前色板颜色预览：</Text>
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        {/* 第一级：品牌选择 */}
+        <div>
+          <Text type="secondary" style={{ fontSize: '12px' }}>品牌</Text>
+          <Select
+            value={params.brandId}
+            options={brandOptions}
+            style={{ width: '100%' }}
+            onChange={(val) => selectBrand(val)}
+            size="small"
+            placeholder="选择品牌"
+          />
+        </div>
+
+        {/* 第二级：系列选择 */}
+        <div>
+          <Text type="secondary" style={{ fontSize: '12px' }}>系列</Text>
+          <Select
+            value={params.seriesId}
+            options={seriesOptions}
+            style={{ width: '100%' }}
+            onChange={(val) => selectSeries(val)}
+            size="small"
+            placeholder="选择系列"
+            disabled={!params.brandId || seriesOptions.length === 0}
+          />
+        </div>
+
+        {/* 颜色预览 */}
+        <Text type="secondary">当前系列颜色预览：</Text>
         <div className={styles.paletteGrid}>
-          {currentPalette?.colors.slice(0, 80).map((c) => (
+          {currentSeries?.colors.slice(0, 80).map((c) => (
             <div
               key={c.id}
               className={styles.paletteCell}
@@ -49,11 +93,17 @@ export const PaletteSelector: React.FC = () => {
             />
           ))}
         </div>
-        {currentPalette && (
+        {currentSeries ? (
           <div className={styles.colorInfo}>
-            <Text>{currentPalette.name} - {currentPalette.colors.length} 种颜色</Text>
+            <Text>
+              {currentBrand?.name} - {currentSeries.name} - {currentSeries.colors.length} 种颜色
+            </Text>
           </div>
-        )}
+        ) : brandList.length === 0 ? (
+          <div className={styles.colorInfo}>
+            <Text type="secondary">加载中...</Text>
+          </div>
+        ) : null}
       </Space>
     </div>
   );

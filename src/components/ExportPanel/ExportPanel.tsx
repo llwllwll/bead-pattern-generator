@@ -19,14 +19,13 @@ export const ExportPanel: React.FC = () => {
   const patternState = usePatternStore();
   const imageState = useImageStore();
 
-  const { params, patternCells, paletteList } = patternState;
+  const { params, patternCells, currentSeries } = patternState;
 
   const stats = useMemo(() => {
     const totalCells = params.width * params.height;
-    const palette = paletteList.find((p) => p.id === params.paletteId);
     const map = new Map<string, ColorUsageRow>();
     patternCells.forEach((cell) => {
-      const color = palette?.colors.find((c) => c.id === cell.colorId);
+      const color = currentSeries?.colors.find((c) => c.id === cell.colorId);
       if (!color) return;
       const exist = map.get(color.id);
       if (exist) {
@@ -34,7 +33,7 @@ export const ExportPanel: React.FC = () => {
       } else {
         map.set(color.id, {
           key: color.id,
-          name: color.name,
+          name: color.name || '',
           hex: color.hex,
           count: 1
         });
@@ -52,7 +51,7 @@ export const ExportPanel: React.FC = () => {
       heightCm: (heightMm / 10).toFixed(1),
       rows
     };
-  }, [params, patternCells, paletteList]);
+  }, [params, patternCells, currentSeries]);
 
   useEffect(() => {
     const handler = (e: Event) => {

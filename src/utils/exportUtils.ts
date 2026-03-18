@@ -10,9 +10,8 @@ interface ColorUsageRow {
 }
 
 export const savePatternAsPng = (patternState: PatternState, withIndex: boolean) => {
-  const { params, patternCells, paletteList } = patternState;
-  const palette = paletteList.find((p) => p.id === params.paletteId);
-  if (!palette) return;
+  const { params, patternCells, currentSeries } = patternState;
+  if (!currentSeries) return;
 
   const scale = 4; // 固定使用 4x 缩放以保证清晰度
   const cellSize = 8 * scale;
@@ -48,7 +47,7 @@ export const savePatternAsPng = (patternState: PatternState, withIndex: boolean)
   
   // 绘制图案
   patternCells.forEach((cell) => {
-    const color = palette.colors.find((c) => c.id === cell.colorId);
+    const color = currentSeries.colors.find((c) => c.id === cell.colorId);
     ctx.fillStyle = color?.hex ?? '#cccccc';
     ctx.fillRect(
       borderWidth + cell.x * cellSize,
@@ -141,7 +140,7 @@ export const savePatternAsPng = (patternState: PatternState, withIndex: boolean)
   // 统计颜色使用情况
   const colorUsage = new Map<string, { color: any; count: number }>();
   patternCells.forEach((cell) => {
-    const color = palette.colors.find((c) => c.id === cell.colorId);
+    const color = currentSeries.colors.find((c) => c.id === cell.colorId);
     if (color) {
       const existing = colorUsage.get(color.id);
       if (existing) {

@@ -14,7 +14,7 @@ const ditheringDescriptions: Record<string, string> = {
 };
 
 export const ControlPanel: React.FC = () => {
-  const { params, setParams, paletteList } = usePatternStore();
+  const { params, setParams, currentSeries } = usePatternStore();
   const { originalWidth, originalHeight } = useImageStore();
 
   // 计算图片比例
@@ -30,13 +30,8 @@ export const ControlPanel: React.FC = () => {
     }
   }, [params.width, params.lockRatio, imageRatio, setParams]);
 
-  // 获取当前色板的颜色选项
-  const currentPalette = useMemo(() => {
-    return paletteList.find((p) => p.id === params.paletteId);
-  }, [paletteList, params.paletteId]);
-
   const colorOptions = useMemo(() => {
-    return currentPalette?.colors.map((c) => ({
+    return currentSeries?.colors.map((c) => ({
       value: c.hex,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -51,7 +46,7 @@ export const ControlPanel: React.FC = () => {
         </div>
       ),
     })) || [];
-  }, [currentPalette]);
+  }, [currentSeries]);
 
   // 计算物理尺寸
   const physicalSize = useMemo(() => {

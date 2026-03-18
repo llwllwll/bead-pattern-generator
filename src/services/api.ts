@@ -34,8 +34,8 @@ apiClient.interceptors.request.use(
       };
     };
 
-    // 检查是否是管理员API
-    const isAdminAPI = config.url?.startsWith('/admin');
+    // 检查是否是管理员API (包括 /admin 和 /palettes 管理)
+    const isAdminAPI = config.url?.startsWith('/admin') || config.url?.startsWith('/palettes');
     
     if (isAdminAPI) {
       const adminToken =
@@ -69,7 +69,7 @@ apiClient.interceptors.response.use(
     
     // Handle 401 errors - token expired
     if (error.response?.status === 401 && originalRequest) {
-      const isAdminAPI = originalRequest.url?.startsWith('/admin');
+      const isAdminAPI = originalRequest.url?.startsWith('/admin') || originalRequest.url?.startsWith('/palettes');
       const tokenKey = isAdminAPI ? 'admin_refresh_token' : 'refresh_token';
       const accessTokenKey = isAdminAPI ? 'admin_access_token' : 'access_token';
       
@@ -98,10 +98,8 @@ apiClient.interceptors.response.use(
           localStorage.removeItem(tokenKey);
           
           if (isAdminAPI) {
-            // 管理员登录失败，跳转到管理登录页
             window.location.href = '/admin';
           } else {
-            // 用户登录失败，跳转到用户登录页
             window.location.href = '/login';
           }
           return Promise.reject(refreshError);
@@ -129,12 +127,14 @@ export const authAPI = {
     username: string;
     phone: string;
     password: string;
+    device_type?: string;
   }) => apiClient.post('/auth/register', data),
   
   login: (data: {
     phone: string;
     password: string;
     device_id?: string;
+    device_type?: string;
     fcm_token?: string;
   }) => apiClient.post('/auth/login', data),
   
@@ -279,83 +279,282 @@ export const adminAPI = {
   }) => apiClient.get('/admin/logs', { params }),
 };
 
-// Palette API
+// ============ Brand API ============
+
+export interface Brand {
+  id: string;
+  name: string;
+  code: string;
+  description?: string;
+  logo_url?: string;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+  series_count: number;
+}
+
+export interface BrandCreate {
+  name: string;
+  code: string;
+  description?: string;
+  logo_url?: string;
+  is_active?: boolean;
+  display_order?: number;
+}
+
+export interface BrandUpdate {
+  name?: string;
+  code?: string;
+  description?: string;
+  logo_url?: string;
+  is_active?: boolean;
+  display_order?: number;
+}
+
+// ============ Series API ============
+
+export interface Series {
+  id: string;
+  name: string;
+  code: string;
+  description?: string;
+  is_active: boolean;
+  is_default: boolean;
+  display_order: number;
+  brand_id: string;
+  brand_name?: string;
+  created_at: string;
+  updated_at: string;
+  color_count: number;
+}
+
+export interface SeriesCreate {
+  name: string;
+  code: string;
+  description?: string;
+  is_active?: boolean;
+  is_default?: boolean;
+  display_order?: number;
+  brand_id: string;
+}
+
+export interface SeriesUpdate {
+  name?: string;
+  code?: string;
+  description?: string;
+  is_active?: boolean;
+  is_default?: boolean;
+  display_order?: number;
+}
+
+// ============ Color API ============
+
+export interface Color {
+  id: string;
+  color_code: string;
+  name?: string;
+  hex: string;
+  is_transparent: boolean;
+  is_glow: boolean;
+  is_metallic: boolean;
+  display_order: number;
+  series_id: string;
+  series_name?: string;
+  brand_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ColorCreate {
+  color_code: string;
+  name?: string;
+  hex: string;
+  is_transparent?: boolean;
+  is_glow?: boolean;
+  is_metallic?: boolean;
+  display_order?: number;
+  series_id: string;
+}
+
+export interface ColorUpdate {
+  color_code?: string;
+  name?: string;
+  hex?: string;
+  is_transparent?: boolean;
+  is_glow?: boolean;
+  is_metallic?: boolean;
+  display_order?: number;
+}
+
+// ============ Hierarchical Types ============
+
+export interface HierarchicalBrand {
+  id: string;
+  name: string;
+  code: string;
+  description?: string;
+  series: HierarchicalSeries[];
+}
+
+export interface HierarchicalSeries {
+  id: string;
+  name: string;
+  code: string;
+  description?: string;
+  is_default: boolean;
+  colors: Color[];
+}
+
+// ============ Import Types ============
+
+export interface ColorImportRow {
+  brand_code: string;
+  brand_name: string;
+  series_code: string;
+  series_name: string;
+  color_code: string;
+  color_name?: string;
+  hex: string;
+  is_transparent?: boolean;
+  is_glow?: boolean;
+  is_metallic?: boolean;
+}
+
+export interface ColorImportResult {
+  success: boolean;
+  total: number;
+  imported: number;
+  failed: number;
+  errors: string[];
+}
+
+// ============ Palette API ============
+
 export const paletteApi = {
-  // Public APIs (for frontend)
+  // ========== Brand APIs ==========
+  
+  // List all brands
+  getBrands: () =>
+    apiClient.get('/palettes/brands').then((res) => res.data),
+  
+  // Create brand
+  createBrand: (data: BrandCreate) =>
+    apiClient.post('/palettes/brands', data).then((res) => res.data),
+  
+  // Get brand with series
+  getBrand: (brandId: string) =>
+    apiClient.get(`/palettes/brands/${brandId}`).then((res) => res.data),
+  
+  // Update brand
+  updateBrand: (brandId: string, data: BrandUpdate) =>
+    apiClient.put(`/palettes/brands/${brandId}`, data).then((res) => res.data),
+  
+  // Delete brand
+  deleteBrand: (brandId: string) =>
+    apiClient.delete(`/palettes/brands/${brandId}`),
+  
+  // Batch reorder brands
+  batchReorderBrands: (orders: { id: string; display_order: number }[]) =>
+    apiClient.post('/palettes/brands/batch-reorder', orders).then((res) => res.data),
+  
+  // Batch delete brands
+  batchDeleteBrands: (brandIds: string[]) =>
+    apiClient.post('/palettes/brands/batch-delete', brandIds).then((res) => res.data),
+  
+  // Export brands
+  exportBrands: (brandIds?: string[]) =>
+    apiClient.post('/palettes/brands/export', brandIds).then((res) => res.data),
+  
+  // ========== Series APIs ==========
+  
+  // List all series (optionally filtered by brand)
+  getSeries: (brandId?: string) =>
+    apiClient.get('/palettes/series', { params: { brand_id: brandId } }).then((res) => res.data),
+  
+  // Create series
+  createSeries: (data: SeriesCreate) =>
+    apiClient.post('/palettes/series', data).then((res) => res.data),
+  
+  // Get series with colors
+  getSeriesDetail: (seriesId: string) =>
+    apiClient.get(`/palettes/series/${seriesId}`).then((res) => res.data),
+  
+  // Update series
+  updateSeries: (seriesId: string, data: SeriesUpdate) =>
+    apiClient.put(`/palettes/series/${seriesId}`, data).then((res) => res.data),
+  
+  // Delete series
+  deleteSeries: (seriesId: string) =>
+    apiClient.delete(`/palettes/series/${seriesId}`),
+  
+  // Batch reorder series
+  batchReorderSeries: (orders: { id: string; display_order: number }[]) =>
+    apiClient.post('/palettes/series/batch-reorder', orders).then((res) => res.data),
+  
+  // Batch delete series
+  batchDeleteSeries: (seriesIds: string[]) =>
+    apiClient.post('/palettes/series/batch-delete', seriesIds).then((res) => res.data),
+  
+  // Export series
+  exportSeries: (seriesIds?: string[]) =>
+    apiClient.post('/palettes/series/export', seriesIds).then((res) => res.data),
+  
+  // ========== Color APIs ==========
+  
+  // List all colors (optionally filtered by series)
+  getColors: (seriesId?: string) =>
+    apiClient.get('/palettes/colors', { params: { series_id: seriesId } }).then((res) => res.data),
+  
+  // Create color
+  createColor: (seriesId: string, data: Omit<ColorCreate, 'series_id'>) =>
+    apiClient.post(`/palettes/series/${seriesId}/colors`, data).then((res) => res.data),
+  
+  // Update color
+  updateColor: (colorId: string, data: ColorUpdate) =>
+    apiClient.put(`/palettes/colors/${colorId}`, data).then((res) => res.data),
+  
+  // Delete color
+  deleteColor: (colorId: string) =>
+    apiClient.delete(`/palettes/colors/${colorId}`),
+  
+  // ========== Import API ==========
+  
+  // Bulk import
+  importColors: (rows: ColorImportRow[], createBrands?: boolean, createSeries?: boolean) =>
+    apiClient.post('/palettes/import', {
+      rows,
+      create_brands: createBrands ?? true,
+      create_series: createSeries ?? true
+    }).then((res) => res.data),
+  
+  // ========== Public APIs (for frontend) ==========
+  
+  // Get all brands with series count
+  getPublicBrands: () =>
+    apiClient.get('/palettes/public/brands').then((res) => res.data),
+  
+  // Get series for a brand
+  getPublicSeries: (brandId: string) =>
+    apiClient.get(`/palettes/public/brands/${brandId}/series`).then((res) => res.data),
+  
+  // Get colors for a series
+  getPublicSeriesColors: (seriesId: string) =>
+    apiClient.get(`/palettes/public/series/${seriesId}/colors`).then((res) => res.data),
+  
+  // Get full hierarchy (brand -> series -> color)
+  getPublicHierarchy: () =>
+    apiClient.get('/palettes/hierarchy').then((res) => res.data),
+  
+  // ========== Legacy APIs (for backward compatibility) ==========
+  
+  // Legacy: Get palettes list
   getPublicPalettes: () =>
-    apiClient.get('/admin/palettes/public').then((res) => res.data),
-
+    apiClient.get('/palettes/public').then((res) => res.data),
+  
+  // Legacy: Get palette detail
   getPublicPalette: (paletteId: string) =>
-    apiClient.get(`/admin/palettes/public/${paletteId}`).then((res) => res.data),
-
-  // Admin APIs
-  getPalettes: () =>
-    apiClient.get('/admin/palettes').then((res) => res.data),
-
-  getPalette: (paletteId: string) =>
-    apiClient.get(`/admin/palettes/${paletteId}`).then((res) => res.data),
-
-  createPalette: (data: {
-    name: string;
-    code: string;
-    description?: string;
-    brand?: string;
-    is_default?: boolean;
-    colors: Array<{
-      color_code: string;
-      name?: string;
-      hex: string;
-      is_transparent?: boolean;
-      is_glow?: boolean;
-      is_metallic?: boolean;
-      display_order?: number;
-    }>;
-  }) => apiClient.post('/admin/palettes', data).then((res) => res.data),
-
-  updatePalette: (
-    paletteId: string,
-    data: {
-      name?: string;
-      description?: string;
-      brand?: string;
-      is_active?: boolean;
-      is_default?: boolean;
-    }
-  ) => apiClient.put(`/admin/palettes/${paletteId}`, data).then((res) => res.data),
-
-  deletePalette: (paletteId: string) =>
-    apiClient.delete(`/admin/palettes/${paletteId}`),
-
-  // Color management
-  addColor: (
-    paletteId: string,
-    data: {
-      color_code: string;
-      name?: string;
-      hex: string;
-      is_transparent?: boolean;
-      is_glow?: boolean;
-      is_metallic?: boolean;
-      display_order?: number;
-    }
-  ) => apiClient.post(`/admin/palettes/${paletteId}/colors`, data).then((res) => res.data),
-
-  updateColor: (
-    paletteId: string,
-    colorId: string,
-    data: {
-      color_code: string;
-      name?: string;
-      hex: string;
-      is_transparent?: boolean;
-      is_glow?: boolean;
-      is_metallic?: boolean;
-      display_order?: number;
-    }
-  ) => apiClient.put(`/admin/palettes/${paletteId}/colors/${colorId}`, data).then((res) => res.data),
-
-  deleteColor: (paletteId: string, colorId: string) =>
-    apiClient.delete(`/admin/palettes/${paletteId}/colors/${colorId}`),
+    apiClient.get(`/palettes/legacy/${paletteId}`).then((res) => res.data),
 };
 
 export default apiClient;

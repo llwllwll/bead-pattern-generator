@@ -1,22 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card, Table, Button, Input, Form, Select, message, Modal, Popconfirm,
-  Tag, Space, Switch, Row, Col, Divider, Upload, Alert, Progress
+  Tag, Space, Switch, Row, Col, Divider, Upload, Alert, Progress, Tabs
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined,
-  EyeOutlined, MinusCircleOutlined, DownloadOutlined, UploadOutlined
+  EyeOutlined, DownloadOutlined, UploadOutlined, ImportOutlined,
+  HolderOutlined, ExportOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { paletteApi } from '../../services/api';
+import type { TableRowSelection } from 'antd/es/table/interface';
+import { paletteApi, type Brand, type Series, type Color, type ColorImportRow } from '../../services/api';
 
 const { Option } = Select;
 const { TextArea } = Input;
+const { TabPane } = Tabs;
 
-interface PaletteColor {
-  id: string;
-  color_code: string;
+// ============== Types ==============
+
+interface BrandFormData {
   name: string;
+  code: string;
+  description?: string;
+  logo_url?: string;
+  is_active: boolean;
+  display_order: number;
+}
+
+interface SeriesFormData {
+  name: string;
+  code: string;
+  description?: string;
+  brand_id: string;
+  is_active: boolean;
+  is_default: boolean;
+  display_order: number;
+}
+
+interface ColorFormData {
+  color_code: string;
+  name?: string;
   hex: string;
   is_transparent: boolean;
   is_glow: boolean;
@@ -24,818 +47,1037 @@ interface PaletteColor {
   display_order: number;
 }
 
-interface Palette {
-  id: string;
-  name: string;
-  code: string;
-  description: string;
-  brand: string;
-  is_active: boolean;
-  is_default: boolean;
-  colors: PaletteColor[];
-  color_count: number;
-  created_at: string;
-}
-
-interface PaletteFormData {
-  name: string;
-  code: string;
-  description: string;
-  brand: string;
-  is_default: boolean;
-  colors: Array<{
-    color_code: string;
-    name: string;
-    hex: string;
-    is_transparent: boolean;
-    is_glow: boolean;
-    is_metallic: boolean;
-  }>;
-}
-
-type ParsedColorRow = {
-  rowNumber: number;
-  color_code: string;
-  name?: string;
-  hex: string;
-  is_transparent?: boolean;
-  is_glow?: boolean;
-  is_metallic?: boolean;
-  display_order?: number;
-  error?: string;
-};
+// ============== Component ==============
 
 export const PaletteManager: React.FC = () => {
-  const [palettes, setPalettes] = useState<Palette[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingPalette, setEditingPalette] = useState<Palette | null>(null);
-  const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [selectedPalette, setSelectedPalette] = useState<Palette | null>(null);
-  const [form] = Form.useForm();
+  // ========== State ==========
+  const [activeTab, setActiveTab] = useState('brands');
+  
+  // Brands
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [brandLoading, setBrandLoading] = useState(false);
+  const [brandModalVisible, setBrandModalVisible] = useState(false);
+  const [editingBrand, setEditingBrand] = useState<Brand | null>(null);
+  const [brandForm] = Form.useForm();
+  const [selectedBrandKeys, setSelectedBrandKeys] = useState<React.Key[]>([]);
+  const [draggedBrandIndex, setDraggedBrandIndex] = useState<number | null>(null);
+  
+  // Series
+  const [series, setSeries] = useState<Series[]>([]);
+  const [seriesLoading, setSeriesLoading] = useState(false);
+  const [seriesModalVisible, setSeriesModalVisible] = useState(false);
+  const [editingSeries, setEditingSeries] = useState<Series | null>(null);
+  const [seriesForm] = Form.useForm();
+  const [selectedBrandForSeries, setSelectedBrandForSeries] = useState<string>('');
+  const [selectedSeriesKeys, setSelectedSeriesKeys] = useState<React.Key[]>([]);
+  const [draggedSeriesIndex, setDraggedSeriesIndex] = useState<number | null>(null);
+  
+  // Colors
+  const [colors, setColors] = useState<Color[]>([]);
+  const [colorsLoading, setColorsLoading] = useState(false);
+  const [colorModalVisible, setColorModalVisible] = useState(false);
+  const [editingColor, setEditingColor] = useState<Color | null>(null);
   const [colorForm] = Form.useForm();
-  const [csvRows, setCsvRows] = useState<ParsedColorRow[]>([]);
+  const [selectedSeriesForColor, setSelectedSeriesForColor] = useState<string>('');
+  
+  // Import
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [importData, setImportData] = useState('');
   const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
-  const [importSummary, setImportSummary] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const [importResult, setImportResult] = useState<{success: number; failed: number; errors: string[]} | null>(null);
+  const [parsedData, setParsedData] = useState<ColorImportRow[]>([]);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [fileName, setFileName] = useState('');
 
+  // ========== Effects ==========
   useEffect(() => {
-    loadPalettes();
+    loadBrands();
+    loadSeries();
+    loadColors();
   }, []);
 
-  const loadPalettes = async () => {
+  // ========== Brand Functions ==========
+  const loadBrands = async () => {
     try {
-      setLoading(true);
-      const data = await paletteApi.getPalettes();
-      setPalettes(data);
+      setBrandLoading(true);
+      const data = await paletteApi.getBrands();
+      setBrands(data);
     } catch (error) {
-      message.error('加载色库失败');
-      console.error('Load palettes error:', error);
-      setPalettes([]);
+      message.error('加载品牌失败');
+      console.error('Load brands error:', error);
     } finally {
-      setLoading(false);
+      setBrandLoading(false);
     }
   };
 
-  const handleCreate = async (values: PaletteFormData) => {
+  const handleCreateBrand = async (values: BrandFormData) => {
     try {
-      setLoading(true);
-      await paletteApi.createPalette({
-        ...values,
-        colors: values.colors.map((c, idx) => ({
-          ...c,
-          display_order: idx,
-        })),
-      });
-      message.success('色库创建成功');
-      setModalVisible(false);
-      form.resetFields();
-      loadPalettes();
+      await paletteApi.createBrand(values);
+      message.success('品牌创建成功');
+      setBrandModalVisible(false);
+      brandForm.resetFields();
+      loadBrands();
     } catch (error: any) {
-      message.error(error.response?.data?.detail || '创建色库失败');
-      console.error('Create palette error:', error);
-    } finally {
-      setLoading(false);
+      message.error(error.response?.data?.detail || '创建品牌失败');
     }
   };
 
-  const handleUpdate = async (values: Partial<Palette>) => {
-    if (!editingPalette) return;
-
+  const handleUpdateBrand = async (values: BrandFormData) => {
+    if (!editingBrand) return;
     try {
-      setLoading(true);
-      await paletteApi.updatePalette(editingPalette.id, values);
-      message.success('色库更新成功');
-      setModalVisible(false);
-      setEditingPalette(null);
-      form.resetFields();
-      loadPalettes();
+      await paletteApi.updateBrand(editingBrand.id, values);
+      message.success('品牌更新成功');
+      setBrandModalVisible(false);
+      setEditingBrand(null);
+      brandForm.resetFields();
+      loadBrands();
     } catch (error: any) {
-      message.error(error.response?.data?.detail || '更新色库失败');
-      console.error('Update palette error:', error);
-    } finally {
-      setLoading(false);
+      message.error(error.response?.data?.detail || '更新品牌失败');
     }
   };
 
-  const handleDelete = async (paletteId: string) => {
+  const handleDeleteBrand = async (brandId: string) => {
     try {
-      setLoading(true);
-      await paletteApi.deletePalette(paletteId);
-      message.success('色库删除成功');
-      loadPalettes();
-    } catch (error) {
-      message.error('删除色库失败');
-      console.error('Delete palette error:', error);
-    } finally {
-      setLoading(false);
+      await paletteApi.deleteBrand(brandId);
+      message.success('品牌删除成功');
+      loadBrands();
+      loadSeries();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '删除品牌失败');
     }
   };
 
-  const openCreateModal = () => {
-    setEditingPalette(null);
-    form.resetFields();
-    form.setFieldsValue({
-      colors: [{ color_code: '', name: '', hex: '#000000', is_transparent: false, is_glow: false, is_metallic: false }],
-    });
-    setModalVisible(true);
+  const handleBrandDragStart = (index: number) => {
+    setDraggedBrandIndex(index);
   };
 
-  const openEditModal = (palette: Palette) => {
-    setEditingPalette(palette);
-    form.setFieldsValue({
-      name: palette.name,
-      description: palette.description,
-      brand: palette.brand,
-      is_active: palette.is_active,
-      is_default: palette.is_default,
-    });
-    setModalVisible(true);
+  const handleBrandDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedBrandIndex === null || draggedBrandIndex === index) return;
+    
+    const newBrands = [...brands];
+    const draggedItem = newBrands[draggedBrandIndex];
+    newBrands.splice(draggedBrandIndex, 1);
+    newBrands.splice(index, 0, draggedItem);
+    setBrands(newBrands);
+    setDraggedBrandIndex(index);
   };
 
-  const openDetailModal = async (palette: Palette) => {
+  const handleBrandDragEnd = async () => {
+    if (draggedBrandIndex === null) return;
+    
     try {
-      setLoading(true);
-      const detail = await paletteApi.getPalette(palette.id);
-      setSelectedPalette(detail);
-      setDetailModalVisible(true);
-      setCsvRows([]);
-      setImportSummary(null);
-      setImportProgress({ done: 0, total: 0 });
+      const orders = brands.map((brand, index) => ({
+        id: brand.id,
+        display_order: index
+      }));
+      await paletteApi.batchReorderBrands(orders);
+      message.success('排序更新成功');
     } catch (error) {
-      message.error('加载色库详情失败');
+      message.error('排序更新失败');
+      loadBrands();
     } finally {
-      setLoading(false);
+      setDraggedBrandIndex(null);
     }
   };
 
-  const downloadCsvTemplate = () => {
-    const template = [
-      'color_code,name,hex,is_transparent,is_glow,is_metallic,display_order',
-      'A1,Red,#FF0000,false,false,false,0',
-      'A2,Green,#00FF00,false,false,false,1',
-      'A3,Transparent,#FFFFFF,true,false,false,2',
-      'A4,Night Glow,#0000FF,false,true,false,3',
-      'A5,Metallic Gold,#FFD700,false,false,true,4',
-      '',
-      '说明：',
-      '- color_code: 颜色编号（必填）',
-      '- name: 颜色名称（可选）',
-      '- hex: 颜色值，格式为 #RRGGBB（必填）',
-      '- is_transparent: 是否透明，值为 true/false（可选，默认false）',
-      '- is_glow: 是否夜光，值为 true/false（可选，默认false）',
-      '- is_metallic: 是否金属色，值为 true/false（可选，默认false）',
-      '- display_order: 显示顺序（可选，数字越小越靠前）',
-      '',
-      '注意事项：',
-      '- 第一行为表头，可以省略',
-      '- 布尔值可以使用：true/false, 1/0, yes/no, 是/否',
-      '- HEX颜色值必须以 # 开头，如 #FF0000',
-      '- 如果 display_order 为空，将自动按顺序添加',
-    ].join('\n');
-    const blob = new Blob([template], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'palette_colors_template.csv';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const parseBool = (raw: string | undefined): boolean | undefined => {
-    if (raw == null) return undefined;
-    const v = raw.trim().toLowerCase();
-    if (v === '') return undefined;
-    if (['1', 'true', 'yes', 'y', '是', '对'].includes(v)) return true;
-    if (['0', 'false', 'no', 'n', '否', '错'].includes(v)) return false;
-    return undefined;
-  };
-
-  const normalizeHex = (raw: string): string | null => {
-    const v = raw.trim();
-    const hex = v.startsWith('#') ? v : `#${v}`;
-    return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex.toUpperCase() : null;
-  };
-
-  const parseCsv = async (file: File) => {
-    const text = await file.text();
-    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter((l) => l.trim() !== '');
-    if (lines.length === 0) {
-      setCsvRows([{ rowNumber: 1, color_code: '', hex: '', error: 'CSV为空' }]);
+  const handleBatchDeleteBrands = async () => {
+    if (selectedBrandKeys.length === 0) {
+      message.warning('请先选择要删除的品牌');
       return;
     }
+    
+    try {
+      const result = await paletteApi.batchDeleteBrands(selectedBrandKeys as string[]);
+      message.success(result.message);
+      setSelectedBrandKeys([]);
+      loadBrands();
+      loadSeries();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '批量删除失败');
+    }
+  };
 
-    const splitLine = (line: string) => {
-      // Minimal CSV splitter supporting quotes; good enough for our template.
-      const out: string[] = [];
-      let cur = '';
+  const handleExportBrands = async () => {
+    try {
+      const brandIds = selectedBrandKeys.length > 0 ? selectedBrandKeys as string[] : undefined;
+      const data = await paletteApi.exportBrands(brandIds);
+      
+      const headers = ['brand_code', 'brand_name', 'series_code', 'series_name', 'color_code', 'color_name', 'hex', 'is_transparent', 'is_glow', 'is_metallic'];
+      const csvContent = [
+        headers.join(','),
+        ...data.map((row: any) => headers.map(h => row[h]).join(','))
+      ].join('\n');
+      
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `brands_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      message.success(`成功导出 ${data.length} 条数据`);
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '导出失败');
+    }
+  };
+
+  const openBrandModal = (brand?: Brand) => {
+    if (brand) {
+      setEditingBrand(brand);
+      brandForm.setFieldsValue({
+        name: brand.name,
+        code: brand.code,
+        description: brand.description,
+        logo_url: brand.logo_url,
+        is_active: brand.is_active,
+        display_order: brand.display_order
+      });
+    } else {
+      setEditingBrand(null);
+      brandForm.resetFields();
+    }
+    setBrandModalVisible(true);
+  };
+
+  // ========== Series Functions ==========
+  const loadSeries = async (brandId?: string) => {
+    try {
+      setSeriesLoading(true);
+      const data = await paletteApi.getSeries(brandId);
+      setSeries(data);
+    } catch (error) {
+      message.error('加载系列失败');
+      console.error('Load series error:', error);
+    } finally {
+      setSeriesLoading(false);
+    }
+  };
+
+  const handleCreateSeries = async (values: SeriesFormData) => {
+    try {
+      await paletteApi.createSeries(values);
+      message.success('系列创建成功');
+      setSeriesModalVisible(false);
+      seriesForm.resetFields();
+      loadSeries();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '创建系列失败');
+    }
+  };
+
+  const handleUpdateSeries = async (values: SeriesFormData) => {
+    if (!editingSeries) return;
+    try {
+      await paletteApi.updateSeries(editingSeries.id, values);
+      message.success('系列更新成功');
+      setSeriesModalVisible(false);
+      setEditingSeries(null);
+      seriesForm.resetFields();
+      loadSeries();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '更新系列失败');
+    }
+  };
+
+  const handleDeleteSeries = async (seriesId: string) => {
+    try {
+      await paletteApi.deleteSeries(seriesId);
+      message.success('系列删除成功');
+      loadSeries();
+      loadColors();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '删除系列失败');
+    }
+  };
+
+  const handleSeriesDragStart = (index: number) => {
+    setDraggedSeriesIndex(index);
+  };
+
+  const handleSeriesDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedSeriesIndex === null || draggedSeriesIndex === index) return;
+    
+    const newSeries = [...series];
+    const draggedItem = newSeries[draggedSeriesIndex];
+    newSeries.splice(draggedSeriesIndex, 1);
+    newSeries.splice(index, 0, draggedItem);
+    setSeries(newSeries);
+    setDraggedSeriesIndex(index);
+  };
+
+  const handleSeriesDragEnd = async () => {
+    if (draggedSeriesIndex === null) return;
+    
+    try {
+      const orders = series.map((s, index) => ({
+        id: s.id,
+        display_order: index
+      }));
+      await paletteApi.batchReorderSeries(orders);
+      message.success('排序更新成功');
+    } catch (error) {
+      message.error('排序更新失败');
+      loadSeries();
+    } finally {
+      setDraggedSeriesIndex(null);
+    }
+  };
+
+  const handleBatchDeleteSeries = async () => {
+    if (selectedSeriesKeys.length === 0) {
+      message.warning('请先选择要删除的系列');
+      return;
+    }
+    
+    try {
+      const result = await paletteApi.batchDeleteSeries(selectedSeriesKeys as string[]);
+      message.success(result.message);
+      setSelectedSeriesKeys([]);
+      loadSeries();
+      loadColors();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '批量删除失败');
+    }
+  };
+
+  const handleExportSeries = async () => {
+    try {
+      const seriesIds = selectedSeriesKeys.length > 0 ? selectedSeriesKeys as string[] : undefined;
+      const data = await paletteApi.exportSeries(seriesIds);
+      
+      const headers = ['brand_code', 'brand_name', 'series_code', 'series_name', 'color_code', 'color_name', 'hex', 'is_transparent', 'is_glow', 'is_metallic'];
+      const csvContent = [
+        headers.join(','),
+        ...data.map((row: any) => headers.map(h => row[h]).join(','))
+      ].join('\n');
+      
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `series_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      message.success(`成功导出 ${data.length} 条数据`);
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '导出失败');
+    }
+  };
+
+  const openSeriesModal = (series?: Series) => {
+    if (series) {
+      setEditingSeries(series);
+      seriesForm.setFieldsValue({
+        name: series.name,
+        code: series.code,
+        description: series.description,
+        brand_id: series.brand_id,
+        is_active: series.is_active,
+        is_default: series.is_default,
+        display_order: series.display_order
+      });
+    } else {
+      setEditingSeries(null);
+      seriesForm.resetFields();
+      if (selectedBrandForSeries) {
+        seriesForm.setFieldsValue({ brand_id: selectedBrandForSeries });
+      }
+    }
+    setSeriesModalVisible(true);
+  };
+
+  // ========== Color Functions ==========
+  const loadColors = async (seriesId?: string) => {
+    try {
+      setColorsLoading(true);
+      const data = await paletteApi.getColors(seriesId);
+      setColors(data);
+    } catch (error) {
+      message.error('加载颜色失败');
+      console.error('Load colors error:', error);
+    } finally {
+      setColorsLoading(false);
+    }
+  };
+
+  const handleCreateColor = async (values: ColorFormData) => {
+    if (!selectedSeriesForColor) {
+      message.error('请先选择系列');
+      return;
+    }
+    try {
+      await paletteApi.createColor(selectedSeriesForColor, values);
+      message.success('颜色创建成功');
+      setColorModalVisible(false);
+      colorForm.resetFields();
+      loadColors();
+      loadSeries();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '创建颜色失败');
+    }
+  };
+
+  const handleUpdateColor = async (values: ColorFormData) => {
+    if (!editingColor) return;
+    try {
+      await paletteApi.updateColor(editingColor.id, values);
+      message.success('颜色更新成功');
+      setColorModalVisible(false);
+      setEditingColor(null);
+      colorForm.resetFields();
+      loadColors();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '更新颜色失败');
+    }
+  };
+
+  const handleDeleteColor = async (colorId: string) => {
+    try {
+      await paletteApi.deleteColor(colorId);
+      message.success('颜色删除成功');
+      loadColors();
+      loadSeries();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '删除颜色失败');
+    }
+  };
+
+  const openColorModal = (color?: Color) => {
+    if (color) {
+      setEditingColor(color);
+      colorForm.setFieldsValue({
+        color_code: color.color_code,
+        name: color.name,
+        hex: color.hex,
+        is_transparent: color.is_transparent,
+        is_glow: color.is_glow,
+        is_metallic: color.is_metallic,
+        display_order: color.display_order
+      });
+    } else {
+      setEditingColor(null);
+      colorForm.resetFields();
+    }
+    setColorModalVisible(true);
+  };
+
+  // ========== Import Functions ==========
+  const parseCSV = (content: string): ColorImportRow[] => {
+    const lines = content.trim().split('\n');
+    const rows: ColorImportRow[] = [];
+    
+    // Skip header if present
+    const startIndex = lines[0].includes('brand_code') ? 1 : 0;
+    
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      // Handle quoted CSV values
+      const parts: string[] = [];
+      let current = '';
       let inQuotes = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-          const next = line[i + 1];
-          if (inQuotes && next === '"') {
-            cur += '"';
-            i++;
-          } else {
-            inQuotes = !inQuotes;
-          }
-        } else if (ch === ',' && !inQuotes) {
-          out.push(cur);
-          cur = '';
+      
+      for (let j = 0; j < line.length; j++) {
+        const char = line[j];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if ((char === ',' || char === '\t') && !inQuotes) {
+          parts.push(current.trim());
+          current = '';
         } else {
-          cur += ch;
+          current += char;
         }
       }
-      out.push(cur);
-      return out.map((s) => s.trim());
-    };
-
-    const headerCells = splitLine(lines[0]).map((h) => h.toLowerCase());
-    const hasHeader = headerCells.includes('color_code') && headerCells.includes('hex');
-    const startIndex = hasHeader ? 1 : 0;
-
-    const idx = (name: string) => headerCells.indexOf(name);
-    const colorCodeIdx = hasHeader ? idx('color_code') : 0;
-    const nameIdx = hasHeader ? idx('name') : 1;
-    const hexIdx = hasHeader ? idx('hex') : 2;
-    const transparentIdx = hasHeader ? idx('is_transparent') : 3;
-    const glowIdx = hasHeader ? idx('is_glow') : 4;
-    const metallicIdx = hasHeader ? idx('is_metallic') : 5;
-    const orderIdx = hasHeader ? idx('display_order') : 6;
-
-    const rows: ParsedColorRow[] = [];
-    for (let i = startIndex; i < lines.length; i++) {
-      const cells = splitLine(lines[i]);
-      const rowNumber = i + 1;
-      const color_code = (cells[colorCodeIdx] ?? '').trim();
-      const hexRaw = (cells[hexIdx] ?? '').trim();
-
-      const hex = hexRaw ? normalizeHex(hexRaw) : null;
-      const display_order_raw = orderIdx >= 0 ? (cells[orderIdx] ?? '').trim() : '';
-      const display_order = display_order_raw !== '' && !Number.isNaN(Number(display_order_raw)) ? Number(display_order_raw) : undefined;
-
-      let error: string | undefined;
-      if (!color_code) error = '缺少 color_code';
-      else if (!hex) error = 'hex 格式错误（需 #RRGGBB）';
-
-      rows.push({
-        rowNumber,
-        color_code,
-        name: nameIdx >= 0 ? (cells[nameIdx] ?? '').trim() || undefined : undefined,
-        hex: hex ?? '',
-        is_transparent: transparentIdx >= 0 ? parseBool(cells[transparentIdx]) : undefined,
-        is_glow: glowIdx >= 0 ? parseBool(cells[glowIdx]) : undefined,
-        is_metallic: metallicIdx >= 0 ? parseBool(cells[metallicIdx]) : undefined,
-        display_order,
-        error,
-      });
-    }
-
-    setCsvRows(rows);
-    setImportSummary(null);
-  };
-
-  const handleImportCsv = async () => {
-    if (!selectedPalette) return;
-    const validRows = csvRows.filter((r) => !r.error);
-    if (validRows.length === 0) {
-      message.warning('没有可导入的有效行');
-      return;
-    }
-
-    setImporting(true);
-    setImportSummary(null);
-    setImportProgress({ done: 0, total: validRows.length });
-
-    // Default display_order: append after existing max.
-    const existingMax = Math.max(-1, ...(selectedPalette.colors ?? []).map((c) => c.display_order ?? 0));
-    let autoOrder = existingMax + 1;
-
-    let success = 0;
-    let failed = 0;
-    const errors: string[] = [];
-
-    for (let i = 0; i < validRows.length; i++) {
-      const row = validRows[i];
-      try {
-        await paletteApi.addColor(selectedPalette.id, {
-          color_code: row.color_code,
-          name: row.name,
-          hex: row.hex,
-          is_transparent: row.is_transparent ?? false,
-          is_glow: row.is_glow ?? false,
-          is_metallic: row.is_metallic ?? false,
-          display_order: row.display_order ?? autoOrder++,
+      parts.push(current.trim());
+      
+      if (parts.length >= 7) {
+        rows.push({
+          brand_code: parts[0].replace(/^"|"$/g, ''),
+          brand_name: parts[1].replace(/^"|"$/g, ''),
+          series_code: parts[2].replace(/^"|"$/g, ''),
+          series_name: parts[3].replace(/^"|"$/g, ''),
+          color_code: parts[4].replace(/^"|"$/g, ''),
+          color_name: parts[5].replace(/^"|"$/g, '') || undefined,
+          hex: parts[6].replace(/^"|"$/g, ''),
+          is_transparent: parts[7]?.replace(/^"|"$/g, '').toLowerCase() === 'true',
+          is_glow: parts[8]?.replace(/^"|"$/g, '').toLowerCase() === 'true' || false,
+          is_metallic: parts[9]?.replace(/^"|"$/g, '').toLowerCase() === 'true' || false
         });
-        success++;
-      } catch (e: any) {
-        failed++;
-        const detail = e?.response?.data?.detail || e?.message || '未知错误';
-        errors.push(`第${row.rowNumber}行(${row.color_code}): ${detail}`);
-      } finally {
-        setImportProgress({ done: i + 1, total: validRows.length });
       }
     }
+    
+    return rows;
+  };
 
-    setImportSummary({ success, failed, errors: errors.slice(0, 20) });
-    setImporting(false);
+  const handleFileUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      if (content) {
+        setImportData(content);
+        setFileName(file.name);
+        const rows = parseCSV(content);
+        if (rows.length > 0) {
+          setParsedData(rows);
+          setPreviewVisible(true);
+          message.success(`成功解析 ${rows.length} 条数据`);
+        } else {
+          message.error('未能解析出有效数据，请检查文件格式');
+        }
+      }
+    };
+    reader.readAsText(file);
+    return false; // Prevent default upload
+  };
 
-    if (failed === 0) message.success(`导入成功：${success} 条`);
-    else message.warning(`导入完成：成功 ${success}，失败 ${failed}`);
-
-    // Reload palette detail
+  const handleConfirmImport = async () => {
+    if (parsedData.length === 0) {
+      message.error('没有可导入的数据');
+      return;
+    }
+    
     try {
-      const detail = await paletteApi.getPalette(selectedPalette.id);
-      setSelectedPalette(detail);
-    } catch {
-      // ignore
+      setImporting(true);
+      setImportResult(null);
+      
+      const result = await paletteApi.importColors(parsedData, true, true);
+      setImportResult({
+        success: result.imported,
+        failed: result.failed,
+        errors: result.errors
+      });
+      
+      if (result.imported > 0) {
+        message.success(`成功导入 ${result.imported} 条颜色数据`);
+        loadBrands();
+        loadSeries();
+        loadColors();
+        setPreviewVisible(false);
+        setImportModalVisible(false);
+        setParsedData([]);
+        setImportData('');
+        setFileName('');
+      } else {
+        message.error('导入失败，请检查数据格式');
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '导入失败');
+    } finally {
+      setImporting(false);
     }
   };
 
-  const columns: ColumnsType<Palette> = [
+  const handleImport = async () => {
+    if (!importData.trim()) {
+      message.error('请先上传CSV文件');
+      return;
+    }
+    // This is now handled by handleConfirmImport
+  };
+
+  const downloadTemplate = () => {
+    const template = `brand_code,brand_name,series_code,series_name,color_code,color_name,hex,is_transparent,is_glow,is_metallic
+perler,Perler,std,标准系列,A1,黑色,#000000,false,false,false
+perler,Perler,std,标准系列,A2,白色,#FFFFFF,false,false,false
+perler,Perler,glow,夜光系列,G1,夜光绿,#00FF00,false,true,false
+hama,Hama,mini,Mini系列,M1,红色,#FF0000,false,false,false`;
+    
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'color_import_template.csv';
+    link.click();
+  };
+
+  // ========== Table Columns ==========
+  const brandColumns: ColumnsType<Brand> = [
     {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (text, record) => (
-        <Space>
-          <span>{text}</span>
-          {record.is_default && <Tag color="blue">默认</Tag>}
-          {!record.is_active && <Tag color="red">已禁用</Tag>}
-        </Space>
-      ),
+      title: '',
+      key: 'drag',
+      width: 40,
+      render: (_, __, index) => (
+        <HolderOutlined 
+          style={{ cursor: 'grab', color: '#999' }}
+          onMouseDown={() => handleBrandDragStart(index)}
+        />
+      )
     },
-    {
-      title: '编码',
-      dataIndex: 'code',
-      key: 'code',
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '代码', dataIndex: 'code', key: 'code' },
+    { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+    { 
+      title: '状态', 
+      dataIndex: 'is_active', 
+      key: 'is_active',
+      render: (active) => active ? <Tag color="green">启用</Tag> : <Tag color="red">禁用</Tag>
     },
-    {
-      title: '品牌',
-      dataIndex: 'brand',
-      key: 'brand',
-      render: (text) => text || '-',
-    },
-    {
-      title: '颜色数量',
-      dataIndex: 'color_count',
-      key: 'color_count',
-    },
+    { title: '系列数', dataIndex: 'series_count', key: 'series_count' },
     {
       title: '操作',
       key: 'action',
       render: (_, record) => (
-        <Space size="small">
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={() => openDetailModal(record)}
-            title="查看详情"
-          />
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => openEditModal(record)}
-            title="编辑"
-          />
-          <Popconfirm
-            title="确定删除此色库吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              title="删除"
-            />
+        <Space>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openBrandModal(record)}>编辑</Button>
+          <Popconfirm title="确定删除此品牌吗？将同时删除其下所有系列和颜色！" onConfirm={() => handleDeleteBrand(record.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
-      ),
-    },
+      )
+    }
   ];
 
-  return (
-    <Card
-      title="色库管理"
-      extra={
+  const brandRowSelection: TableRowSelection<Brand> = {
+    selectedRowKeys: selectedBrandKeys,
+    onChange: (selectedKeys) => setSelectedBrandKeys(selectedKeys),
+  };
+
+  const seriesColumns: ColumnsType<Series> = [
+    {
+      title: '',
+      key: 'drag',
+      width: 40,
+      render: (_, __, index) => (
+        <HolderOutlined 
+          style={{ cursor: 'grab', color: '#999' }}
+          onMouseDown={() => handleSeriesDragStart(index)}
+        />
+      )
+    },
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '代码', dataIndex: 'code', key: 'code' },
+    { title: '品牌', dataIndex: 'brand_name', key: 'brand_name' },
+    { 
+      title: '默认', 
+      dataIndex: 'is_default', 
+      key: 'is_default',
+      render: (isDefault) => isDefault ? <Tag color="blue">是</Tag> : <Tag>否</Tag>
+    },
+    { 
+      title: '状态', 
+      dataIndex: 'is_active', 
+      key: 'is_active',
+      render: (active) => active ? <Tag color="green">启用</Tag> : <Tag color="red">禁用</Tag>
+    },
+    { title: '颜色数', dataIndex: 'color_count', key: 'color_count' },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_, record) => (
         <Space>
-          <Button onClick={loadPalettes} icon={<ReloadOutlined />}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-            添加色库
-          </Button>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => { setSelectedSeriesForColor(record.id); loadColors(record.id); setActiveTab('colors'); }}>查看颜色</Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openSeriesModal(record)}>编辑</Button>
+          <Popconfirm title="确定删除此系列吗？将同时删除其下所有颜色！" onConfirm={() => handleDeleteSeries(record.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
         </Space>
-      }
-    >
-      <Table
-        columns={columns}
-        dataSource={palettes}
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          pageSize: 10,
-          showSizeChanger: true,
-          showQuickJumper: true,
-        }}
-      />
+      )
+    }
+  ];
 
-      {/* 创建/编辑色库模态框 */}
+  const seriesRowSelection: TableRowSelection<Series> = {
+    selectedRowKeys: selectedSeriesKeys,
+    onChange: (selectedKeys) => setSelectedSeriesKeys(selectedKeys),
+  };
+
+  const colorColumns: ColumnsType<Color> = [
+    { 
+      title: '颜色', 
+      dataIndex: 'hex', 
+      key: 'hex',
+      render: (hex) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 24, height: 24, backgroundColor: hex, border: '1px solid #ddd', borderRadius: 4 }} />
+          <span>{hex}</span>
+        </div>
+      )
+    },
+    { title: '编号', dataIndex: 'color_code', key: 'color_code' },
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    { 
+      title: '属性', 
+      key: 'attributes',
+      render: (_, record) => (
+        <Space>
+          {record.is_transparent && <Tag color="cyan">透明</Tag>}
+          {record.is_glow && <Tag color="purple">夜光</Tag>}
+          {record.is_metallic && <Tag color="gold">金属</Tag>}
+        </Space>
+      )
+    },
+    { title: '系列', dataIndex: 'series_name', key: 'series_name' },
+    { title: '品牌', dataIndex: 'brand_name', key: 'brand_name' },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_, record) => (
+        <Space>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openColorModal(record)}>编辑</Button>
+          <Popconfirm title="确定删除此颜色吗？" onConfirm={() => handleDeleteColor(record.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
+        </Space>
+      )
+    }
+  ];
+
+  // ========== Render ==========
+  return (
+    <Card title="色彩库管理" extra={
+      <Space>
+        <Button icon={<ImportOutlined />} onClick={() => setImportModalVisible(true)}>批量导入</Button>
+        <Button icon={<ReloadOutlined />} onClick={() => { loadBrands(); loadSeries(); loadColors(); }}>刷新</Button>
+      </Space>
+    }>
+      <Tabs activeKey={activeTab} onChange={setActiveTab}>
+        <TabPane tab="品牌管理" key="brands">
+          <div style={{ marginBottom: 16 }}>
+            <Space>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => openBrandModal()}>
+                添加品牌
+              </Button>
+              <Popconfirm 
+                title={`确定删除选中的 ${selectedBrandKeys.length} 个品牌吗？将同时删除其下所有系列和颜色！`}
+                onConfirm={handleBatchDeleteBrands}
+                disabled={selectedBrandKeys.length === 0}
+              >
+                <Button 
+                  danger 
+                  icon={<DeleteOutlined />}
+                  disabled={selectedBrandKeys.length === 0}
+                >
+                  删除选中 ({selectedBrandKeys.length})
+                </Button>
+              </Popconfirm>
+              <Button 
+                icon={<ExportOutlined />}
+                onClick={handleExportBrands}
+              >
+                导出{selectedBrandKeys.length > 0 ? ` (${selectedBrandKeys.length})` : '全部'}
+              </Button>
+            </Space>
+          </div>
+          <Table 
+            columns={brandColumns} 
+            dataSource={brands} 
+            loading={brandLoading}
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+            rowSelection={brandRowSelection}
+            onRow={(_, index) => ({
+              draggable: true,
+              onDragStart: () => handleBrandDragStart(index!),
+              onDragOver: (e) => handleBrandDragOver(e, index!),
+              onDragEnd: handleBrandDragEnd,
+              style: { cursor: 'grab' }
+            })}
+          />
+        </TabPane>
+        
+        <TabPane tab="系列管理" key="series">
+          <div style={{ marginBottom: 16 }}>
+            <Space>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => openSeriesModal()}>
+                添加系列
+              </Button>
+              <Select 
+                placeholder="筛选品牌" 
+                allowClear 
+                style={{ width: 200 }}
+                onChange={(val) => { setSelectedBrandForSeries(val); loadSeries(val); }}
+              >
+                {brands.map(b => <Option key={b.id} value={b.id}>{b.name}</Option>)}
+              </Select>
+              <Popconfirm 
+                title={`确定删除选中的 ${selectedSeriesKeys.length} 个系列吗？将同时删除其下所有颜色！`}
+                onConfirm={handleBatchDeleteSeries}
+                disabled={selectedSeriesKeys.length === 0}
+              >
+                <Button 
+                  danger 
+                  icon={<DeleteOutlined />}
+                  disabled={selectedSeriesKeys.length === 0}
+                >
+                  删除选中 ({selectedSeriesKeys.length})
+                </Button>
+              </Popconfirm>
+              <Button 
+                icon={<ExportOutlined />}
+                onClick={handleExportSeries}
+              >
+                导出{selectedSeriesKeys.length > 0 ? ` (${selectedSeriesKeys.length})` : '全部'}
+              </Button>
+            </Space>
+          </div>
+          <Table 
+            columns={seriesColumns} 
+            dataSource={series} 
+            loading={seriesLoading}
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+            rowSelection={seriesRowSelection}
+            onRow={(_, index) => ({
+              draggable: true,
+              onDragStart: () => handleSeriesDragStart(index!),
+              onDragOver: (e) => handleSeriesDragOver(e, index!),
+              onDragEnd: handleSeriesDragEnd,
+              style: { cursor: 'grab' }
+            })}
+          />
+        </TabPane>
+        
+        <TabPane tab="颜色管理" key="colors">
+          <div style={{ marginBottom: 16 }}>
+            <Space>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => openColorModal()}>
+                添加颜色
+              </Button>
+              <Select 
+                placeholder="筛选系列" 
+                allowClear 
+                style={{ width: 200 }}
+                onChange={(val) => { setSelectedSeriesForColor(val); loadColors(val); }}
+              >
+                {series.map(s => <Option key={s.id} value={s.id}>{s.brand_name} - {s.name}</Option>)}
+              </Select>
+            </Space>
+          </div>
+          <Table 
+            columns={colorColumns} 
+            dataSource={colors} 
+            loading={colorsLoading}
+            rowKey="id"
+            pagination={{ pageSize: 20 }}
+          />
+        </TabPane>
+      </Tabs>
+
+      {/* Brand Modal */}
       <Modal
-        title={editingPalette ? '编辑色库' : '创建色库'}
-        open={modalVisible}
-        onCancel={() => {
-          setModalVisible(false);
-          setEditingPalette(null);
-          form.resetFields();
-        }}
-        onOk={() => form.submit()}
-        width={800}
-        confirmLoading={loading}
+        title={editingBrand ? '编辑品牌' : '添加品牌'}
+        open={brandModalVisible}
+        onOk={() => brandForm.submit()}
+        onCancel={() => { setBrandModalVisible(false); setEditingBrand(null); brandForm.resetFields(); }}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={editingPalette ? handleUpdate : handleCreate}
-        >
-          {!editingPalette && (
-            <>
-              <Form.Item
-                name="name"
-                label="色库名称"
-                rules={[{ required: true, message: '请输入色库名称' }]}
-              >
-                <Input placeholder="如：Perler 标准色板" />
-              </Form.Item>
-              <Form.Item
-                name="code"
-                label="色库编码"
-                rules={[
-                  { required: true, message: '请输入色库编码' },
-                  { pattern: /^[a-z0-9_-]+$/, message: '只能使用小写字母、数字、下划线和横线' },
-                ]}
-              >
-                <Input placeholder="如：perler-standard" />
-              </Form.Item>
-            </>
-          )}
-
-          {editingPalette && (
-            <>
-              <Form.Item
-                name="name"
-                label="色库名称"
-                rules={[{ required: true, message: '请输入色库名称' }]}
-              >
-                <Input />
-              </Form.Item>
-              <Form.Item name="description" label="描述">
-                <TextArea rows={2} />
-              </Form.Item>
-              <Form.Item name="brand" label="品牌">
-                <Input placeholder="如：Perler, Hama, Artkal" />
-              </Form.Item>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item name="is_active" valuePropName="checked">
-                    <Switch checkedChildren="启用" unCheckedChildren="禁用" />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item name="is_default" valuePropName="checked">
-                    <Switch checkedChildren="默认" unCheckedChildren="非默认" />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </>
-          )}
-
-          {!editingPalette && (
-            <>
-              <Form.Item name="description" label="描述">
-                <TextArea rows={2} />
-              </Form.Item>
-              <Form.Item name="brand" label="品牌">
-                <Input placeholder="如：Perler, Hama, Artkal" />
-              </Form.Item>
-              <Form.Item name="is_default" valuePropName="checked" initialValue={false}>
-                <Switch checkedChildren="设为默认" unCheckedChildren="非默认" />
-              </Form.Item>
-
-              <Divider>颜色列表</Divider>
-
-              <Form.List name="colors">
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-                        <Col span={4}>
-                          <Form.Item
-                            {...restField}
-                            name={[name, 'color_code']}
-                            rules={[{ required: true, message: '编号' }]}
-                            noStyle
-                          >
-                            <Input placeholder="如 A1" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={6}>
-                          <Form.Item
-                            {...restField}
-                            name={[name, 'name']}
-                            noStyle
-                          >
-                            <Input placeholder="颜色名称" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={4}>
-                          <Form.Item
-                            {...restField}
-                            name={[name, 'hex']}
-                            rules={[{ required: true, message: '颜色' }]}
-                            noStyle
-                          >
-                            <Input type="color" style={{ width: '100%', height: 32, padding: 0 }} />
-                          </Form.Item>
-                        </Col>
-                        <Col span={3}>
-                          <Form.Item
-                            {...restField}
-                            name={[name, 'is_transparent']}
-                            valuePropName="checked"
-                            noStyle
-                          >
-                            <Switch size="small" checkedChildren="透" unCheckedChildren="透" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={3}>
-                          <Form.Item
-                            {...restField}
-                            name={[name, 'is_glow']}
-                            valuePropName="checked"
-                            noStyle
-                          >
-                            <Switch size="small" checkedChildren="夜" unCheckedChildren="夜" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={3}>
-                          <Form.Item
-                            {...restField}
-                            name={[name, 'is_metallic']}
-                            valuePropName="checked"
-                            noStyle
-                          >
-                            <Switch size="small" checkedChildren="金" unCheckedChildren="金" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={1}>
-                          <MinusCircleOutlined onClick={() => remove(name)} />
-                        </Col>
-                      </Row>
-                    ))}
-                    <Button
-                      type="dashed"
-                      onClick={() => add()}
-                      block
-                      icon={<PlusOutlined />}
-                    >
-                      添加颜色
-                    </Button>
-                  </>
-                )}
-              </Form.List>
-            </>
-          )}
+        <Form form={brandForm} onFinish={editingBrand ? handleUpdateBrand : handleCreateBrand} layout="vertical" initialValues={{ is_active: true, display_order: 0 }}>
+          <Form.Item name="name" label="品牌名称" rules={[{ required: true, message: '请输入品牌名称' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="code" label="品牌代码" rules={[{ required: true, message: '请输入品牌代码' }]}>
+            <Input placeholder="如：perler, hama" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <TextArea rows={2} />
+          </Form.Item>
+          <Form.Item name="logo_url" label="Logo URL">
+            <Input />
+          </Form.Item>
+          <Form.Item name="is_active" label="启用" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="display_order" label="显示顺序">
+            <Input type="number" />
+          </Form.Item>
         </Form>
       </Modal>
 
-      {/* 色库详情模态框 */}
+      {/* Series Modal */}
       <Modal
-        title={selectedPalette?.name}
-        open={detailModalVisible}
-        onCancel={() => {
-          setDetailModalVisible(false);
-          setSelectedPalette(null);
-          setCsvRows([]);
-          setImportSummary(null);
-          setImportProgress({ done: 0, total: 0 });
-        }}
-        footer={[
-          <Button key="close" onClick={() => setDetailModalVisible(false)}>
-            关闭
-          </Button>,
-        ]}
-        width={900}
+        title={editingSeries ? '编辑系列' : '添加系列'}
+        open={seriesModalVisible}
+        onOk={() => seriesForm.submit()}
+        onCancel={() => { setSeriesModalVisible(false); setEditingSeries(null); seriesForm.resetFields(); }}
       >
-        {selectedPalette && (
-          <div>
-            <Row gutter={16} style={{ marginBottom: 16 }}>
-              <Col span={8}>
-                <strong>编码：</strong>{selectedPalette.code}
-              </Col>
-              <Col span={8}>
-                <strong>品牌：</strong>{selectedPalette.brand || '-'}
-              </Col>
-              <Col span={8}>
-                <strong>状态：</strong>
-                {selectedPalette.is_active ? <Tag color="green">启用</Tag> : <Tag color="red">禁用</Tag>}
-                {selectedPalette.is_default && <Tag color="blue">默认</Tag>}
-              </Col>
-            </Row>
-            {selectedPalette.description && (
-              <p><strong>描述：</strong>{selectedPalette.description}</p>
-            )}
-            <Divider />
-            <Alert
-              message="批量导入颜色（CSV）"
-              description="通过CSV文件批量导入颜色，支持一次性添加多个颜色到色库中"
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-            />
-            <Space style={{ marginBottom: 12 }} wrap>
-              <Button icon={<DownloadOutlined />} onClick={downloadCsvTemplate}>
-                下载CSV模板
-              </Button>
-              <Upload
-                accept=".csv,text/csv"
-                maxCount={1}
-                showUploadList={false}
-                beforeUpload={(file) => {
-                  parseCsv(file);
-                  return false;
-                }}
-              >
-                <Button icon={<UploadOutlined />}>上传CSV并解析</Button>
-              </Upload>
-              <Button
-                type="primary"
-                disabled={importing || csvRows.filter((r) => !r.error).length === 0}
-                loading={importing}
-                onClick={handleImportCsv}
-              >
-                开始导入 ({csvRows.filter((r) => !r.error).length}条有效数据)
-              </Button>
-              {csvRows.length > 0 && (
-                <Button danger onClick={() => setCsvRows([])}>
-                  清除解析结果
-                </Button>
-              )}
-            </Space>
+        <Form form={seriesForm} onFinish={editingSeries ? handleUpdateSeries : handleCreateSeries} layout="vertical" initialValues={{ is_active: true, display_order: 0 }}>
+          <Form.Item name="brand_id" label="所属品牌" rules={[{ required: true, message: '请选择品牌' }]}>
+            <Select placeholder="选择品牌" disabled={!!editingSeries}>
+              {brands.map(b => <Option key={b.id} value={b.id}>{b.name}</Option>)}
+            </Select>
+          </Form.Item>
+          <Form.Item name="name" label="系列名称" rules={[{ required: true, message: '请输入系列名称' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="code" label="系列代码" rules={[{ required: true, message: '请输入系列代码' }]}>
+            <Input placeholder="如：std, mini, glow" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <TextArea rows={2} />
+          </Form.Item>
+          <Form.Item name="is_default" label="设为默认" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="is_active" label="启用" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="display_order" label="显示顺序">
+            <Input type="number" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
-            {importing && (
-              <div style={{ marginBottom: 12 }}>
-                <Progress
-                  percent={importProgress.total ? Math.round((importProgress.done / importProgress.total) * 100) : 0}
-                  status="active"
-                />
+      {/* Color Modal */}
+      <Modal
+        title={editingColor ? '编辑颜色' : '添加颜色'}
+        open={colorModalVisible}
+        onOk={() => colorForm.submit()}
+        onCancel={() => { setColorModalVisible(false); setEditingColor(null); colorForm.resetFields(); }}
+      >
+        <Form form={colorForm} onFinish={editingColor ? handleUpdateColor : handleCreateColor} layout="vertical" initialValues={{ display_order: 0 }}>
+          {!editingColor && (
+            <Form.Item label="所属系列" required>
+              <Select 
+                placeholder="选择系列" 
+                value={selectedSeriesForColor}
+                onChange={setSelectedSeriesForColor}
+              >
+                {series.map(s => <Option key={s.id} value={s.id}>{s.brand_name} - {s.name}</Option>)}
+              </Select>
+            </Form.Item>
+          )}
+          <Form.Item name="color_code" label="颜色编号" rules={[{ required: true, message: '请输入颜色编号' }]}>
+            <Input placeholder="如：A1, B12" />
+          </Form.Item>
+          <Form.Item name="name" label="颜色名称">
+            <Input />
+          </Form.Item>
+          <Form.Item name="hex" label="HEX值" rules={[{ required: true, message: '请输入HEX值' }]}>
+            <Input placeholder="#RRGGBB" />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="is_transparent" label="透明" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="is_glow" label="夜光" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="is_metallic" label="金属" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="display_order" label="显示顺序">
+            <Input type="number" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Import Modal - File Upload */}
+      <Modal
+        title="批量导入颜色"
+        open={importModalVisible}
+        onCancel={() => { 
+          setImportModalVisible(false); 
+          setImportData(''); 
+          setImportResult(null); 
+          setParsedData([]);
+          setFileName('');
+        }}
+        footer={null}
+        width={700}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Alert
+            message="导入格式说明"
+            description={
+              <div>
+                <p>请上传 CSV 文件，每行一条记录，包含以下字段：</p>
+                <p><code>brand_code, brand_name, series_code, series_name, color_code, color_name, hex, is_transparent, is_glow, is_metallic</code></p>
+                <p>如果不存在的品牌或系列会自动创建。</p>
               </div>
-            )}
+            }
+            type="info"
+            showIcon
+          />
+          
+          <div style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center' }}>
+            <Button icon={<DownloadOutlined />} onClick={downloadTemplate}>下载模板</Button>
+            <Upload
+              accept=".csv,.txt"
+              beforeUpload={handleFileUpload}
+              showUploadList={false}
+            >
+              <Button icon={<UploadOutlined />} type="primary">选择CSV文件</Button>
+            </Upload>
+            {fileName && <Tag color="blue">{fileName}</Tag>}
+          </div>
 
-            {importSummary && (
+          {previewVisible && parsedData.length > 0 && (
+            <>
               <Alert
-                type={importSummary.failed === 0 ? 'success' : 'warning'}
+                message={`数据预览：共 ${parsedData.length} 条记录`}
+                type="success"
                 showIcon
-                message={`导入结果：成功 ${importSummary.success}，失败 ${importSummary.failed}`}
-                description={
-                  importSummary.errors.length > 0 ? (
-                    <div style={{ maxHeight: 120, overflow: 'auto' }}>
-                      {importSummary.errors.map((e, idx) => (
-                        <div key={idx}>{e}</div>
-                      ))}
-                      {importSummary.failed > importSummary.errors.length && <div>…更多错误已省略</div>}
-                    </div>
-                  ) : undefined
-                }
-                style={{ marginBottom: 12 }}
               />
-            )}
-
-            {csvRows.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ marginBottom: 8, fontWeight: 500 }}>
-                  CSV解析结果（共 {csvRows.length} 行，{csvRows.filter((r) => !r.error).length} 行有效，{csvRows.filter((r) => r.error).length} 行错误）
-                </div>
+              <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid #d9d9d9', borderRadius: 6 }}>
                 <Table
-                  size="small"
-                  rowKey={(r) => `${r.rowNumber}-${r.color_code}`}
-                  dataSource={csvRows}
-                  pagination={{ pageSize: 8 }}
-                  scroll={{ x: 800 }}
+                  dataSource={parsedData.map((row, idx) => ({ ...row, key: idx }))}
                   columns={[
-                    { title: '行号', dataIndex: 'rowNumber', width: 60, fixed: 'left' },
-                    { title: '颜色编号', dataIndex: 'color_code', width: 100 },
-                    { title: '颜色名称', dataIndex: 'name', width: 120, render: (v) => v || '-' },
+                    { title: '品牌', dataIndex: 'brand_code', width: 80 },
+                    { title: '系列', dataIndex: 'series_code', width: 80 },
+                    { title: '颜色编号', dataIndex: 'color_code', width: 90 },
+                    { title: '颜色名', dataIndex: 'color_name', width: 100 },
                     { 
-                      title: '颜色', 
+                      title: '色值', 
                       dataIndex: 'hex', 
-                      width: 100,
+                      width: 80,
                       render: (hex) => (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <div 
-                            style={{ 
-                              width: 20, 
-                              height: 20, 
-                              borderRadius: 4, 
-                              backgroundColor: hex,
-                              border: '1px solid #d9d9d9'
-                            }} 
-                          />
+                          <div style={{ width: 16, height: 16, backgroundColor: hex, border: '1px solid #d9d9d9' }} />
                           <span>{hex}</span>
                         </div>
                       )
                     },
-                    { title: '透明', dataIndex: 'is_transparent', width: 70, render: (v) => (v ? '是' : '否') },
-                    { title: '夜光', dataIndex: 'is_glow', width: 70, render: (v) => (v ? '是' : '否') },
-                    { title: '金属', dataIndex: 'is_metallic', width: 70, render: (v) => (v ? '是' : '否') },
-                    { title: '排序', dataIndex: 'display_order', width: 80, render: (v) => (v ?? '-') },
-                    {
-                      title: '状态',
-                      dataIndex: 'error',
+                    { 
+                      title: '属性', 
                       width: 120,
-                      fixed: 'right',
-                      render: (v) => v ? <Tag color="red" style={{ fontSize: 11 }}>{v}</Tag> : <Tag color="green">有效</Tag>,
+                      render: (_, row) => (
+                        <Space size={4}>
+                          {row.is_transparent && <Tag size="small">透明</Tag>}
+                          {row.is_glow && <Tag size="small" color="green">夜光</Tag>}
+                          {row.is_metallic && <Tag size="small" color="gold">金属</Tag>}
+                        </Space>
+                      )
                     },
                   ]}
-                  rowClassName={(record) => record.error ? 'error-row' : ''}
+                  pagination={false}
+                  size="small"
+                  scroll={{ y: 240 }}
                 />
               </div>
-            )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-sm)', marginTop: 'var(--spacing-md)' }}>
+                <Button onClick={() => { setPreviewVisible(false); setParsedData([]); setFileName(''); }}>
+                  重新选择
+                </Button>
+                <Button type="primary" loading={importing} onClick={handleConfirmImport}>
+                  确认导入
+                </Button>
+              </div>
+            </>
+          )}
 
-            <h4>颜色列表（共 {selectedPalette.colors?.length || 0} 种）</h4>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                gap: 12,
-                maxHeight: 400,
-                overflow: 'auto',
-                padding: 8,
-              }}
-            >
-              {selectedPalette.colors?.map((color) => (
-                <div
-                  key={color.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: 8,
-                    border: '1px solid #f0f0f0',
-                    borderRadius: 4,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 4,
-                      backgroundColor: color.hex,
-                      border: '1px solid rgba(0,0,0,0.1)',
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500 }}>{color.color_code}</div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
-                      {color.name || '-'} {color.hex}
-                    </div>
-                    <div style={{ fontSize: 11 }}>
-                      {color.is_transparent && <Tag size="small">透明</Tag>}
-                      {color.is_glow && <Tag size="small" color="purple">夜光</Tag>}
-                      {color.is_metallic && <Tag size="small" color="gold">金属</Tag>}
-                    </div>
+          {importResult && (
+            <Alert
+              message={`导入结果：成功 ${importResult.success} 条，失败 ${importResult.failed} 条`}
+              description={
+                importResult.errors.length > 0 && (
+                  <div style={{ maxHeight: 200, overflow: 'auto' }}>
+                    {importResult.errors.map((err, idx) => <div key={idx}>{err}</div>)}
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+                )
+              }
+              type={importResult.failed === 0 ? 'success' : 'warning'}
+            />
+          )}
+        </Space>
       </Modal>
     </Card>
   );

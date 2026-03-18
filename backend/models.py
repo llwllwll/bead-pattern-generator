@@ -108,7 +108,7 @@ class AdminLog(Base):
     
     # Action info
     action = Column(String(50), nullable=False)  # create_user, create_admin, generate_codes, etc.
-    resource_type = Column(String(50))  # user, admin, activation_code, palette, etc.
+    resource_type = Column(String(50))  # user, admin, activation_code, brand, series, color, etc.
     resource_id = Column(String(100))  # ID of the affected resource
     
     # Details
@@ -205,31 +205,60 @@ class Admin(Base):
     logs = relationship("AdminLog", back_populates="admin", cascade="all, delete-orphan")
 
 
-class ColorPalette(Base):
-    """色库表"""
-    __tablename__ = "color_palettes"
+# ============ 色彩库新结构：品牌 -> 系列 -> 颜色 ============
+
+class Brand(Base):
+    """品牌表"""
+    __tablename__ = "brands"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(100), nullable=False)
-    code = Column(String(50), unique=True, nullable=False)  # 唯一标识码
+    name = Column(String(100), nullable=False)  # 品牌名称，如 Perler, Hama, Artkal
+    code = Column(String(50), unique=True, nullable=False)  # 品牌代码，如 perler, hama
     description = Column(Text)
-    brand = Column(String(50))  # 品牌，如 Perler, Hama, Artkal
+    logo_url = Column(Text)
     is_active = Column(Boolean, default=True)
-    is_default = Column(Boolean, default=False)  # 是否为默认色板
+    display_order = Column(Integer, default=0)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
-    colors = relationship("PaletteColor", back_populates="palette", cascade="all, delete-orphan")
+    series = relationship("Series", back_populates="brand", cascade="all, delete-orphan")
 
 
-class PaletteColor(Base):
-    """色库颜色表"""
-    __tablename__ = "palette_colors"
+class Series(Base):
+    """系列表（原 ColorPalette 的概念）"""
+    __tablename__ = "series"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    palette_id = Column(UUID(as_uuid=True), ForeignKey("color_palettes.id", ondelete="CASCADE"), nullable=False)
+    brand_id = Column(UUID(as_uuid=True), ForeignKey("brands.id", ondelete="CASCADE"), nullable=False)
+    
+    name = Column(String(100), nullable=False)  # 系列名称，如标准系列、Mini系列、夜光系列
+    code = Column(String(50), nullable=False)  # 系列代码
+    description = Column(Text)
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)  # 是否为默认系列
+    display_order = Column(Integer, default=0)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    brand = relationship("Brand", back_populates="series")
+    colors = relationship("Color", back_populates="series", cascade="all, delete-orphan")
+    
+    # 联合唯一约束：同一品牌内系列代码唯一
+    __table_args__ = (
+        Index('idx_brand_series_code', 'brand_id', 'code', unique=True),
+    )
+
+
+class Color(Base):
+    """颜色表（原 PaletteColor）"""
+    __tablename__ = "colors"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    series_id = Column(UUID(as_uuid=True), ForeignKey("series.id", ondelete="CASCADE"), nullable=False)
     
     # 颜色编号，如 "A1", "B12", "H7"
     color_code = Column(String(10), nullable=False)
@@ -247,9 +276,12 @@ class PaletteColor(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
-    palette = relationship("ColorPalette", back_populates="colors")
+    series = relationship("Series", back_populates="colors")
     
-    # 联合唯一约束：同一色板内颜色编号唯一
+    # 联合唯一约束：同一系列内颜色编号唯一
     __table_args__ = (
-        Index('idx_palette_color_code', 'palette_id', 'color_code', unique=True),
+        Index('idx_series_color_code', 'series_id', 'color_code', unique=True),
     )
+
+
+

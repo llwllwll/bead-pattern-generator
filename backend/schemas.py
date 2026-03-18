@@ -335,3 +335,205 @@ class PaginatedResponse(BaseModel):
     page: int
     limit: int
     pages: int
+
+
+# ============== Brand Schemas ==============
+
+class BrandBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    code: str = Field(..., min_length=1, max_length=50)
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    is_active: bool = True
+    display_order: int = 0
+
+
+class BrandCreate(BrandBase):
+    pass
+
+
+class BrandUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    code: Optional[str] = Field(None, min_length=1, max_length=50)
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    is_active: Optional[bool] = None
+    display_order: Optional[int] = None
+
+
+class BrandResponse(BrandBase):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    series_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class BrandWithSeriesResponse(BrandResponse):
+    series: List['SeriesResponse'] = []
+
+
+# ============== Series Schemas ==============
+
+class SeriesBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    code: str = Field(..., min_length=1, max_length=50)
+    description: Optional[str] = None
+    is_active: bool = True
+    is_default: bool = False
+    display_order: int = 0
+
+
+class SeriesCreate(SeriesBase):
+    brand_id: uuid.UUID
+
+
+class SeriesUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    code: Optional[str] = Field(None, min_length=1, max_length=50)
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+    display_order: Optional[int] = None
+
+
+class SeriesResponse(SeriesBase):
+    id: uuid.UUID
+    brand_id: uuid.UUID
+    brand_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    color_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class SeriesWithColorsResponse(SeriesResponse):
+    colors: List['ColorResponse'] = []
+
+
+# ============== Color Schemas ==============
+
+class ColorBase(BaseModel):
+    color_code: str = Field(..., min_length=1, max_length=10)
+    name: Optional[str] = Field(None, max_length=100)
+    hex: str = Field(..., pattern=r'^#[0-9A-Fa-f]{6}$')
+    is_transparent: bool = False
+    is_glow: bool = False
+    is_metallic: bool = False
+    display_order: int = 0
+
+
+class ColorCreate(ColorBase):
+    series_id: uuid.UUID
+
+
+class ColorUpdate(BaseModel):
+    color_code: Optional[str] = Field(None, min_length=1, max_length=10)
+    name: Optional[str] = Field(None, max_length=100)
+    hex: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    is_transparent: Optional[bool] = None
+    is_glow: Optional[bool] = None
+    is_metallic: Optional[bool] = None
+    display_order: Optional[int] = None
+
+
+class ColorResponse(ColorBase):
+    id: uuid.UUID
+    series_id: uuid.UUID
+    series_name: Optional[str] = None
+    brand_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============== Hierarchical Response Schemas ==============
+
+class HierarchicalBrandResponse(BaseModel):
+    """品牌层级响应（包含系列和颜色）"""
+    id: uuid.UUID
+    name: str
+    code: str
+    description: Optional[str] = None
+    series: List['HierarchicalSeriesResponse'] = []
+
+    class Config:
+        from_attributes = True
+
+
+class HierarchicalSeriesResponse(BaseModel):
+    """系列层级响应（包含颜色）"""
+    id: uuid.UUID
+    name: str
+    code: str
+    description: Optional[str] = None
+    is_default: bool = False
+    colors: List[ColorResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+# ============== Import/Export Schemas ==============
+
+class ColorImportRow(BaseModel):
+    """单行颜色导入数据"""
+    brand_code: str
+    brand_name: str
+    series_code: str
+    series_name: str
+    color_code: str
+    color_name: Optional[str] = None
+    hex: str
+    is_transparent: bool = False
+    is_glow: bool = False
+    is_metallic: bool = False
+
+
+class ColorImportRequest(BaseModel):
+    """批量导入请求"""
+    rows: List[ColorImportRow]
+    create_brands: bool = True  # 如果品牌不存在是否自动创建
+    create_series: bool = True  # 如果系列不存在是否自动创建
+
+
+class ColorImportResult(BaseModel):
+    """导入结果"""
+    success: bool
+    total: int
+    imported: int
+    failed: int
+    errors: List[str] = []
+
+
+# ============== Public API Schemas ==============
+
+class PublicBrandListResponse(BaseModel):
+    """公开API返回的品牌列表（简化版）"""
+    id: uuid.UUID
+    name: str
+    code: str
+    series_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class PublicSeriesListResponse(BaseModel):
+    """公开API返回的系列列表（简化版）"""
+    id: uuid.UUID
+    name: str
+    code: str
+    brand_id: uuid.UUID
+    brand_name: str
+    is_default: bool
+    color_count: int = 0
+
+    class Config:
+        from_attributes = True
