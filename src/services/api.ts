@@ -528,12 +528,14 @@ export const paletteApi = {
   
   // ========== Import API ==========
   
-  // Bulk import
+  // Bulk import (with extended timeout for large datasets)
   importColors: (rows: ColorImportRow[], createBrands?: boolean, createSeries?: boolean) =>
     apiClient.post('/palettes/import', {
       rows,
       create_brands: createBrands ?? true,
       create_series: createSeries ?? true
+    }, {
+      timeout: 120000 // 120秒超时，用于大批量导入
     }).then((res) => res.data),
   
   // ========== Public APIs (for frontend) ==========

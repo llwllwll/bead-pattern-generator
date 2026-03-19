@@ -566,7 +566,26 @@ export const PaletteManager: React.FC = () => {
         message.error('导入失败，请检查数据格式');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.detail || '导入失败');
+      console.error('Import error:', error);
+      
+      // 处理不同类型的错误
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        message.error('导入超时，请减少数据量后重试（建议每次不超过500条）');
+      } else if (error.response?.status === 413) {
+        message.error('数据量过大，请分批导入（建议每次不超过500条）');
+      } else if (error.response?.status === 401) {
+        message.error('登录已过期，请重新登录');
+      } else if (error.response?.status >= 500) {
+        message.error('服务器错误，请稍后重试');
+      } else {
+        message.error(error.response?.data?.detail || error.message || '导入失败，请检查网络连接');
+      }
+      
+      setImportResult({
+        success: 0,
+        failed: parsedData.length,
+        errors: [error.message || '导入请求失败']
+      });
     } finally {
       setImporting(false);
     }

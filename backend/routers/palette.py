@@ -758,78 +758,143 @@ async def import_colors(
     db: AsyncSession = Depends(get_db),
     current_admin: Admin = Depends(get_current_admin)
 ):
-    """Bulk import colors with brand and series creation"""
+    """Bulk import colors with brand and series creation (optimized with caching)"""
     errors = []
     imported = 0
     
+    # Step 1: Load all existing brands into cache
+    brand_cache = {}
+    brand_result = await db.execute(select(Brand))
+    for brand in brand_result.scalars().all():
+        brand_cache[brand.code] = brand
+    
+    # Step 2: Load all existing series into cache
+    series_cache = {}
+    series_result = await db.execute(select(Series))
+    for series in series_result.scalars().all():
+        key = f"{series.brand_id}_{series.code}"
+        series_cache[key] = series
+    
+    # Step 3: Load all existing colors into cache
+    color_cache = set()
+    color_result = await db.execute(select(Color.series_id, Color.color_code))
+    for row in color_result:
+        color_cache.add(f"{row[0]}_{row[1]}")
+    
+    # Step 4: Process rows and collect new items
+    new_brands = {}
+    new_series = {}  # {series_key: {'series': Series, 'brand': Brand}}
+    new_colors = []
+    
     for idx, row in enumerate(data.rows):
         try:
-            # Find or create brand
-            brand_result = await db.execute(
-                select(Brand).where(Brand.code == row.brand_code)
-            )
-            brand = brand_result.scalar_one_or_none()
-            
+            # Get or create brand
+            brand = brand_cache.get(row.brand_code)
             if not brand:
                 if not data.create_brands:
                     errors.append(f"第 {idx + 1} 行: 品牌 '{row.brand_code}' 不存在")
                     continue
                 
-                brand = Brand(
-                    name=row.brand_name,
-                    code=row.brand_code,
-                    is_active=True
-                )
-                db.add(brand)
-                await db.flush()
+                if row.brand_code not in new_brands:
+                    new_brands[row.brand_code] = Brand(
+                        name=row.brand_name,
+                        code=row.brand_code,
+                        is_active=True
+                    )
+                brand = new_brands[row.brand_code]
             
-            # Find or create series
-            series_result = await db.execute(
-                select(Series).where(
-                    and_(Series.brand_id == brand.id, Series.code == row.series_code)
-                )
-            )
-            series = series_result.scalar_one_or_none()
+            # Get or create series
+            series_key = f"{brand.id if hasattr(brand, 'id') and brand.id else brand.code}_{row.series_code}"
+            series = series_cache.get(series_key)
             
             if not series:
                 if not data.create_series:
                     errors.append(f"第 {idx + 1} 行: 系列 '{row.series_code}' 不存在")
                     continue
                 
-                series = Series(
-                    brand_id=brand.id,
-                    name=row.series_name,
-                    code=row.series_code,
-                    is_active=True
-                )
-                db.add(series)
-                await db.flush()
+                if series_key not in new_series:
+                    brand_id = brand.id if hasattr(brand, 'id') and brand.id else None
+                    new_series[series_key] = {
+                        'series': Series(
+                            brand_id=brand_id,
+                            name=row.series_name,
+                            code=row.series_code,
+                            is_active=True
+                        ),
+                        'brand': brand
+                    }
+                series = new_series[series_key]['series']
             
-            # Check if color already exists
-            existing_color = await db.execute(
-                select(Color).where(
-                    and_(Color.series_id == series.id, Color.color_code == row.color_code)
-                )
-            )
-            if existing_color.scalar_one_or_none():
+            # Check if color exists
+            series_id = series.id if hasattr(series, 'id') and series.id else None
+            color_key = f"{series_id}_{row.color_code}" if series_id else f"{series_key}_{row.color_code}"
+            
+            if color_key in color_cache:
                 errors.append(f"第 {idx + 1} 行: 颜色 '{row.color_code}' 已存在于系列 '{row.series_code}'")
                 continue
             
-            # Create color
-            color = Color(
-                series_id=series.id,
-                color_code=row.color_code,
-                name=row.color_name,
-                hex=row.hex,
-                is_transparent=row.is_transparent,
-                is_glow=row.is_glow,
-                is_metallic=row.is_metallic
-            )
-            db.add(color)
-            imported += 1
+            # Add to new colors
+            new_colors.append({
+                'idx': idx,
+                'series': series,
+                'series_id': series_id,
+                'row': row,
+                'color_key': color_key
+            })
             
         except Exception as e:
             errors.append(f"第 {idx + 1} 行: {str(e)}")
+    
+    # Step 5: Batch insert new brands
+    if new_brands:
+        db.add_all(new_brands.values())
+        await db.flush()  # Get IDs
+        
+        # Update brand cache
+        for code, brand in new_brands.items():
+            brand_cache[code] = brand
+    
+    # Step 6: Batch insert new series (update brand_id references)
+    if new_series:
+        series_objects = []
+        for key, item in new_series.items():
+            series = item['series']
+            brand = item['brand']
+            if not series.brand_id:
+                series.brand_id = brand.id
+            series_objects.append(series)
+        
+        db.add_all(series_objects)
+        await db.flush()  # Get IDs
+        
+        # Update series cache
+        for key, item in new_series.items():
+            series_cache[key] = item['series']
+    
+    # Step 7: Batch insert new colors
+    color_objects = []
+    for item in new_colors:
+        series = item['series']
+        row = item['row']
+        
+        # Update series_id if it was None
+        series_id = series.id if hasattr(series, 'id') else item['series_id']
+        
+        color = Color(
+            series_id=series_id,
+            color_code=row.color_code,
+            name=row.color_name,
+            hex=row.hex,
+            is_transparent=row.is_transparent,
+            is_glow=row.is_glow,
+            is_metallic=row.is_metallic
+        )
+        color_objects.append(color)
+        color_cache.add(item['color_key'])
+    
+    if color_objects:
+        db.add_all(color_objects)
+        imported = len(color_objects)
     
     await db.commit()
     
