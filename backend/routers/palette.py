@@ -20,7 +20,7 @@ from schemas import (
     PublicBrandListResponse, PublicSeriesListResponse
 )
 
-router = APIRouter(prefix="/palettes", tags=["palette-management"])
+router = APIRouter(prefix="/api/palettes", tags=["palette-management"])
 
 
 # ============== Helper Functions ==============

@@ -40,13 +40,13 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     # Create new user
     new_user = User(
         username=user_data.username,
-        email=f"{user_data.phone}@placeholder.local",  # Placeholder email
+        email=user_data.email,  # Use provided email or None
         password_hash=get_password_hash(user_data.password),
         phone=user_data.phone,
         avatar_url=user_data.avatar_url,
         device_id=user_data.device_id,
         device_type=user_data.device_type,
-        remaining_credits=10  # Default trial credits
+        remaining_credits=5  # Default trial credits
     )
     
     db.add(new_user)

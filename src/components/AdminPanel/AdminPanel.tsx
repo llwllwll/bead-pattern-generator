@@ -73,6 +73,17 @@ const AdminPanel: React.FC = () => {
   const [addUserModalVisible, setAddUserModalVisible] = useState(false);
   const [editUserModalVisible, setEditUserModalVisible] = useState(false);
   const [addAdminModalVisible, setAddAdminModalVisible] = useState(false);
+  const [changeAdminPasswordModalVisible, setChangeAdminPasswordModalVisible] = useState(false);
+  const [editingAdmin, setEditingAdmin] = useState<any>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [currentAdmin, setCurrentAdmin] = useState<any>(null);
+
+  // 获取当前管理员信息
+  useEffect(() => {
+    const admin = useAuthStore.getState().admin;
+    setCurrentAdmin(admin);
+  }, [useAuthStore.getState().isAdmin]);
   const [addUserForm] = Form.useForm();
   const [editUserForm] = Form.useForm();
   const [addAdminForm] = Form.useForm();
@@ -97,6 +108,9 @@ const AdminPanel: React.FC = () => {
           await loadUsers();
           await loadActivationCodes();
           await loadStats();
+          if (activeTab === 'admins') {
+            await loadAdmins();
+          }
         }
       } catch (error) {
         console.error('Admin panel initialization error:', error);
@@ -108,7 +122,16 @@ const AdminPanel: React.FC = () => {
     };
     
     initializeAdminPanel();
-  }, [adminToken, isAdmin]);
+  }, [adminToken, isAdmin, activeTab]);
+
+  // 监听标签切换，加载对应数据
+  useEffect(() => {
+    if (isLoggedIn) {
+      if (activeTab === 'admins') {
+        loadAdmins();
+      }
+    }
+  }, [activeTab, isLoggedIn]);
 
   const loadUsers = async () => {
     try {
@@ -117,8 +140,17 @@ const AdminPanel: React.FC = () => {
       const data = response.data as any;
       const items = Array.isArray(data) ? data : (data?.items ?? []);
       setUsers(items);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Load users error:', error);
+      // 检查是否是401未授权错误
+      if (error.response?.status === 401) {
+        // 清除过期的管理员token
+        localStorage.removeItem('admin_access_token');
+        localStorage.removeItem('admin_refresh_token');
+        // 重置管理员状态
+        adminLogout();
+        setIsLoggedIn(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -137,6 +169,8 @@ const AdminPanel: React.FC = () => {
         localStorage.removeItem('admin_access_token');
         localStorage.removeItem('admin_refresh_token');
         // 重置管理员状态
+        adminLogout();
+        setIsLoggedIn(false);
       } else if (error.response?.status === 500) {
         setError('服务器内部错误，请稍后重试');
       } else if (error.response?.status === 404) {
@@ -153,8 +187,17 @@ const AdminPanel: React.FC = () => {
     try {
       const response = await adminAPI.getStats();
       setStats(response.data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Load stats error:', error);
+      // 检查是否是401未授权错误
+      if (error.response?.status === 401) {
+        // 清除过期的管理员token
+        localStorage.removeItem('admin_access_token');
+        localStorage.removeItem('admin_refresh_token');
+        // 重置管理员状态
+        adminLogout();
+        setIsLoggedIn(false);
+      }
     }
   };
 
@@ -165,8 +208,17 @@ const AdminPanel: React.FC = () => {
       const data = response.data as any;
       const items = Array.isArray(data) ? data : (data?.items ?? []);
       setAdmins(items);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Load admins error:', error);
+      // 检查是否是401未授权错误
+      if (error.response?.status === 401) {
+        // 清除过期的管理员token
+        localStorage.removeItem('admin_access_token');
+        localStorage.removeItem('admin_refresh_token');
+        // 重置管理员状态
+        adminLogout();
+        setIsLoggedIn(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -183,6 +235,58 @@ const AdminPanel: React.FC = () => {
     } catch (error) {
       message.error('创建管理员失败');
       console.error('Add admin error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChangeAdminPassword = async () => {
+    if (!editingAdmin) return;
+    
+    if (newPassword !== confirmPassword) {
+      message.error('两次输入的密码不一致');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      message.error('新密码长度至少为6位');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await adminAPI.updateAdminPassword(editingAdmin.id, {
+        new_password: newPassword
+      });
+      message.success('密码修改成功');
+      setChangeAdminPasswordModalVisible(false);
+      // 清空表单
+      setNewPassword('');
+      setConfirmPassword('');
+      setEditingAdmin(null);
+      loadAdmins();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '密码修改失败');
+      console.error('Change admin password error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenChangePasswordModal = (admin: any) => {
+    setEditingAdmin(admin);
+    setChangeAdminPasswordModalVisible(true);
+  };
+
+  const handleDeleteAdmin = async (adminId: string) => {
+    try {
+      setLoading(true);
+      await adminAPI.deleteAdmin(adminId);
+      message.success('管理员删除成功');
+      loadAdmins();
+    } catch (error) {
+      message.error('删除管理员失败');
+      console.error('Delete admin error:', error);
     } finally {
       setLoading(false);
     }
@@ -296,6 +400,20 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      setLoading(true);
+      await adminAPI.deleteUser(userId);
+      message.success('用户删除成功');
+      loadUsers();
+    } catch (error) {
+      message.error('删除用户失败');
+      console.error('Delete user error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAddUser = async (values: any) => {
     try {
       setLoading(true);
@@ -404,6 +522,21 @@ const AdminPanel: React.FC = () => {
               {record.is_active ? '禁用' : '启用'}
             </Button>
           </Popconfirm>
+          <Popconfirm
+            title="确定要删除该用户吗？此操作不可恢复！"
+            onConfirm={() => handleDeleteUser(record.id)}
+            okText="确定"
+            cancelText="取消"
+            okType="danger"
+          >
+            <Button 
+              danger 
+              size="small"
+              icon={<DeleteOutlined />}
+            >
+              删除
+            </Button>
+          </Popconfirm>
         </div>
       ),
     },
@@ -435,6 +568,42 @@ const AdminPanel: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       render: (time: string | Date) => new Date(time).toLocaleString(),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_, record) => (
+        <div className={styles.actionButtons}>
+          {/* 普通管理员只能修改自己的密码，超级管理员可以修改所有管理员的密码 */}
+          {useAuthStore.getState().admin?.id === record.id || useAuthStore.getState().admin?.role === 'admin' ? (
+            <Button 
+              type="primary" 
+              size="small"
+              onClick={() => handleOpenChangePasswordModal(record)}
+            >
+              修改密码
+            </Button>
+          ) : null}
+          {/* 只有超级管理员可以删除普通管理员 */}
+          {useAuthStore.getState().admin?.role === 'admin' && record.role !== 'admin' && (
+            <Popconfirm
+              title="确定要删除该管理员吗？此操作不可恢复！"
+              onConfirm={() => handleDeleteAdmin(record.id)}
+              okText="确定"
+              cancelText="取消"
+              okType="danger"
+            >
+              <Button 
+                danger 
+                size="small"
+                icon={<DeleteOutlined />}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -619,7 +788,15 @@ const AdminPanel: React.FC = () => {
             返回主页
           </Button>
           <div className={styles.headerTitle}>拼豆图纸生成器 - 管理后台</div>
-          <div style={{ marginLeft: 'auto' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14, color: '#fff' }}>
+                {currentAdmin?.username || '管理员'}
+              </span>
+              <Tag color={currentAdmin?.role === 'admin' ? 'red' : 'blue'}>
+                {currentAdmin?.role === 'admin' ? '超级管理员' : '普通管理员'}
+              </Tag>
+            </div>
             <Button onClick={adminLogout} className={styles.logoutButton}>
               退出登录
             </Button>
@@ -1059,11 +1236,78 @@ const AdminPanel: React.FC = () => {
             rules={[{ required: true, message: '请选择角色' }]}
           >
             <Select placeholder="请选择角色">
-              <Option value="admin">超级管理员</Option>
+              {useAuthStore.getState().admin?.role === 'admin' && (
+                <Option value="admin">超级管理员</Option>
+              )}
               <Option value="staff">普通管理员</Option>
             </Select>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 修改管理员密码模态框 */}
+      <Modal
+        title="修改管理员密码"
+        open={changeAdminPasswordModalVisible}
+        onCancel={() => {
+          setChangeAdminPasswordModalVisible(false);
+          // 清空表单
+          setNewPassword('');
+          setConfirmPassword('');
+          setEditingAdmin(null);
+        }}
+        onOk={handleChangeAdminPassword}
+        confirmLoading={loading}
+        footer={[
+          <Button key="cancel" onClick={() => {
+            setChangeAdminPasswordModalVisible(false);
+            // 清空表单
+            setNewPassword('');
+            setConfirmPassword('');
+            setEditingAdmin(null);
+          }}>
+            取消
+          </Button>,
+          <Button
+            key="submit"
+            type="primary"
+            loading={loading}
+            onClick={handleChangeAdminPassword}
+          >
+            确认修改
+          </Button>,
+        ]}
+      >
+        <div style={{ padding: '20px 0' }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+              管理员
+            </label>
+            <Input value={editingAdmin?.username || ''} disabled />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+              新密码
+            </label>
+            <Input.Password
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="请输入新密码（至少6位）"
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+              确认新密码
+            </label>
+            <Input.Password
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="请再次输入新密码"
+              style={{ width: '100%' }}
+            />
+          </div>
+        </div>
       </Modal>
     </Layout>
   );

@@ -204,6 +204,8 @@ export const adminAPI = {
   login: (data: { username: string; password: string }) =>
     apiClient.post('/admin/login', data),
   
+  getAdminInfo: () => apiClient.get('/admin/me'),
+  
   createAdmin: (data: {
     username: string;
     email: string;
@@ -265,10 +267,16 @@ export const adminAPI = {
     is_active?: boolean;
     is_verified?: boolean;
   }) => apiClient.put(`/admin/users/${userId}`, data),
+
+  deleteUser: (userId: string) => apiClient.delete(`/admin/users/${userId}`),
   
   getStats: () => apiClient.get('/admin/stats'),
   
   listAdmins: () => apiClient.get('/admin/admins'),
+
+  updateAdminPassword: (adminId: string, data: { new_password: string }) => apiClient.put(`/admin/admins/${adminId}/password`, data),
+
+  deleteAdmin: (adminId: string) => apiClient.delete(`/admin/admins/${adminId}`),
 
   getAdminLogs: (params?: {
     page?: number;

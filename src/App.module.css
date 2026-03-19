@@ -114,17 +114,36 @@
   background-color: rgba(52, 152, 219, 0.05);
   border: 1px solid rgba(52, 152, 219, 0.2);
   border-radius: var(--border-radius);
-  padding: var(--spacing-md);
+  padding: var(--spacing-lg);
   margin-bottom: var(--spacing-lg);
   box-shadow: var(--box-shadow);
+  text-align: center;
 }
 
 .userInfoContent {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
   font-size: 14px;
   color: var(--text-primary);
+  align-items: center;
+  justify-content: center;
+}
+
+.userInfoContent > div {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.userInfoContent input {
+  max-width: 200px;
+}
+
+.userInfoContent button {
+  white-space: nowrap;
 }
 
 .footer {

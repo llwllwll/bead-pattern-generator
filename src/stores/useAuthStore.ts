@@ -16,6 +16,14 @@ interface User {
   created_at: string;
 }
 
+interface Admin {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  created_at: string;
+}
+
 interface AuthState {
   // 用户状态
   isAuthenticated: boolean;
@@ -28,6 +36,7 @@ interface AuthState {
 
   // 管理员状态
   isAdmin: boolean;
+  admin: Admin | null;
   adminToken: string | null;
 
   // 登录相关
@@ -74,6 +83,7 @@ export const useAuthStore = create<AuthState>()(
 
       // 管理员初始状态
       isAdmin: false,
+      admin: null,
       adminToken: null,
 
       // 登录
@@ -144,8 +154,13 @@ export const useAuthStore = create<AuthState>()(
           localStorage.setItem('admin_access_token', access_token);
           localStorage.setItem('admin_refresh_token', refresh_token);
           
+          // 获取管理员信息
+          const adminInfoResponse = await adminAPI.getAdminInfo();
+          const adminInfo = adminInfoResponse.data;
+          
           set({
             isAdmin: true,
+            admin: adminInfo,
             adminToken: access_token
           });
           
@@ -162,6 +177,7 @@ export const useAuthStore = create<AuthState>()(
         localStorage.removeItem('admin_refresh_token');
         set({
           isAdmin: false,
+          admin: null,
           adminToken: null
         });
       },

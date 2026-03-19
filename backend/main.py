@@ -55,7 +55,7 @@ app.include_router(auth_router)
 app.include_router(activation_router)
 app.include_router(pattern_router)
 app.include_router(admin_router)
-app.include_router(palette_router, prefix="/api")
+app.include_router(palette_router)
 
 
 @app.get("/")

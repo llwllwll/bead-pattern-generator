@@ -1,0 +1,54 @@
+# 项目修改记录
+
+## 后端文件
+
+### 1. backend/main.py
+- 移除了palette_router的prefix="/api"参数，确保路由前缀一致性
+
+### 2. backend/routers/palette.py
+- 将路由前缀从"/palettes"改为"/api/palettes"，保持与其他路由一致
+
+### 3. backend/routers/auth.py
+- 将新用户默认额度从10改为5
+- 邮箱使用用户提供的值或为空，不再填充占位数据
+
+### 4. backend/routers/admin.py
+- 将管理员创建用户时的默认额度从10改为5
+- 添加了删除用户、查找用户功能
+- 添加了修改管理员密码和删除管理员功能
+- 添加了get_admin_info接口，用于获取当前登录的管理员信息
+- 实现了管理员权限控制：
+  - 只有超级管理员可以添加超级管理员
+  - 普通管理员只能添加普通管理员
+  - 普通管理员只能修改自己的密码
+  - 只有超级管理员可以删除普通管理员
+
+## 前端文件
+
+### 1. src/components/AdminPanel/AdminPanel.tsx
+- 添加了删除用户按钮
+- 实现了管理员管理页面自动加载数据
+- 添加了管理员操作列（修改密码和删除）
+- 添加了修改管理员密码的模态框
+- 在管理后台顶部添加了登录管理员的身份信息（用户名和角色）
+- 实现了管理员权限控制的前端逻辑
+- **修复了401错误处理**：在loadUsers、loadActivationCodes、loadStats、loadAdmins等函数中，当遇到401未授权错误时，正确清除token并更新状态，使页面能够跳转到登录界面
+
+### 2. src/App.tsx
+- 添加了激活码激活功能
+- 美化了用户信息区域UI
+
+### 3. src/App.module.css
+- 美化了用户信息区域样式，确保元素对齐和居中
+
+### 4. src/services/api.ts
+- 添加了删除用户API方法
+- 添加了修改管理员密码API方法
+- 添加了删除管理员API方法
+- 添加了获取管理员信息API方法
+
+### 5. src/stores/useAuthStore.ts
+- 添加了Admin接口，用于定义管理员的属性
+- 添加了admin字段到AuthState中，用于存储管理员的详细信息
+- 修改了adminLogin函数，在登录成功后获取并存储管理员信息
+- 修改了adminLogout函数，在登出时清空管理员信息

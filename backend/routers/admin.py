@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List
@@ -132,6 +132,14 @@ async def admin_login(credentials: AdminLogin, db: AsyncSession = Depends(get_db
     }
 
 
+@router.get("/me", response_model=AdminResponse)
+async def get_admin_info(
+    current_admin: Admin = Depends(get_current_admin)
+):
+    """Get current admin info"""
+    return current_admin
+
+
 @router.post("/refresh", response_model=Token)
 async def refresh_admin_token(credentials: HTTPAuthorizationCredentials = Depends(security), db: AsyncSession = Depends(get_db)):
     """Refresh admin access token"""
@@ -180,11 +188,19 @@ async def create_admin(
     current_admin: Admin = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new admin (superadmin only)"""
-    if current_admin.role != "super_admin":
+    """Create a new admin"""
+    # Only superadmin can create superadmin
+    if admin_data.role == "admin" and current_admin.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only superadmin can create new admins"
+            detail="Only superadmin can create superadmin"
+        )
+    
+    # Regular admin can only create staff admin
+    if current_admin.role != "admin" and admin_data.role != "staff":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Regular admin can only create staff admin"
         )
     
     # Check if admin already exists
@@ -391,7 +407,7 @@ async def create_user(
         email=user_data.email,
         is_active=True,
         is_verified=True,
-        remaining_credits=10,  # Default credits
+        remaining_credits=5,  # Default credits
         total_used=0
     )
 
@@ -540,6 +556,62 @@ async def update_user(
     return user
 
 
+@router.delete("/users/{user_id}", response_model=MessageResponse)
+async def delete_user(
+    user_id: uuid.UUID,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete user"""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Delete user
+    await db.delete(user)
+    await db.commit()
+    
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="delete_user",
+        resource_type="user",
+        resource_id=str(user_id),
+        details={
+            "username": user.username,
+            "email": user.email,
+            "phone": user.phone
+        }
+    )
+    
+    return {"message": "User deleted successfully"}
+
+
+@router.get("/users/{user_id}", response_model=UserResponse)
+async def get_user(
+    user_id: uuid.UUID,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get user by ID"""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    return user
+
+
 @router.get("/stats")
 async def get_stats(
     current_admin: Admin = Depends(get_current_admin),
@@ -598,6 +670,107 @@ async def list_admins(
     return admins
 
 
+class AdminPasswordUpdate(BaseModel):
+    new_password: str = Field(..., min_length=6, max_length=100)
+
+
+@router.put("/admins/{admin_id}/password", response_model=MessageResponse)
+async def update_admin_password(
+    admin_id: uuid.UUID,
+    password_data: AdminPasswordUpdate,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update admin password"""
+    # Regular admin can only update their own password
+    if current_admin.role != "admin" and current_admin.id != admin_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Regular admin can only update their own password"
+        )
+    
+    # Find admin
+    result = await db.execute(select(Admin).where(Admin.id == admin_id))
+    admin = result.scalar_one_or_none()
+    
+    if not admin:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Admin not found"
+        )
+    
+    # Update password
+    admin.password_hash = get_password_hash(password_data.new_password)
+    await db.commit()
+    
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="update_admin_password",
+        resource_type="admin",
+        resource_id=str(admin_id),
+        details={
+            "username": admin.username,
+            "email": admin.email
+        }
+    )
+    
+    return {"message": "Password updated successfully"}
+
+
+@router.delete("/admins/{admin_id}", response_model=MessageResponse)
+async def delete_admin(
+    admin_id: uuid.UUID,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete admin (superadmin only)"""
+    # Only superadmin can delete admins
+    if current_admin.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superadmin can delete admins"
+        )
+    
+    # Cannot delete self
+    if current_admin.id == admin_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete yourself"
+        )
+    
+    # Find admin
+    result = await db.execute(select(Admin).where(Admin.id == admin_id))
+    admin = result.scalar_one_or_none()
+    
+    if not admin:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Admin not found"
+        )
+    
+    # Delete admin
+    await db.delete(admin)
+    await db.commit()
+    
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="delete_admin",
+        resource_type="admin",
+        resource_id=str(admin_id),
+        details={
+            "username": admin.username,
+            "email": admin.email,
+            "role": admin.role
+        }
+    )
+    
+    return {"message": "Admin deleted successfully"}
+
+
 @router.get("/logs", response_model=List[AdminLogResponse])
 async def list_admin_logs(
     filters: AdminLogFilter = Depends(),
@@ -639,3 +812,93 @@ async def list_admin_logs(
         log_responses.append(log_dict)
     
     return log_responses
+
+
+class AdminPasswordUpdate(BaseModel):
+    old_password: str
+    new_password: str = Field(..., min_length=6, max_length=100)
+
+
+@router.put("/password", response_model=MessageResponse)
+async def update_admin_password(
+    password_data: AdminPasswordUpdate,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update admin password"""
+    # Verify old password
+    if not verify_password(password_data.old_password, current_admin.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect old password"
+        )
+    
+    # Update password
+    current_admin.password_hash = get_password_hash(password_data.new_password)
+    await db.commit()
+    
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="update_password",
+        resource_type="admin",
+        resource_id=str(current_admin.id),
+        details={
+            "username": current_admin.username
+        }
+    )
+    
+    return {"message": "Password updated successfully"}
+
+
+@router.delete("/admins/{admin_id}", response_model=MessageResponse)
+async def delete_admin(
+    admin_id: uuid.UUID,
+    current_admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete admin (superadmin only)"""
+    # Only superadmin can delete admins
+    if current_admin.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superadmin can delete admins"
+        )
+    
+    # Cannot delete self
+    if current_admin.id == admin_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete yourself"
+        )
+    
+    # Find admin
+    result = await db.execute(select(Admin).where(Admin.id == admin_id))
+    admin = result.scalar_one_or_none()
+    
+    if not admin:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Admin not found"
+        )
+    
+    # Delete admin
+    await db.delete(admin)
+    await db.commit()
+    
+    # Log admin action
+    await log_admin_action(
+        db=db,
+        admin_id=current_admin.id,
+        action="delete_admin",
+        resource_type="admin",
+        resource_id=str(admin_id),
+        details={
+            "username": admin.username,
+            "email": admin.email,
+            "role": admin.role
+        }
+    )
+    
+    return {"message": "Admin deleted successfully"}

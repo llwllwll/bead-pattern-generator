@@ -28,7 +28,7 @@ import { usePatternStore } from './stores/usePatternStore';
 import { useAuthStore } from './stores/useAuthStore';
 import { loadProjectFromLocalStorage, saveProjectToLocalStorage } from './utils/exportUtils';
 import { generatePatternFromImage } from './utils/imageUtils';
-import { patternAPI, authAPI } from './services/api';
+import { patternAPI, authAPI, activationAPI } from './services/api';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
@@ -60,6 +60,8 @@ const App: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [activationCode, setActivationCode] = useState('');
+  const [activating, setActivating] = useState(false);
 
   useEffect(() => {
     // 初始化加载本地保存的项目
@@ -227,6 +229,27 @@ const App: React.FC = () => {
     }
   };
 
+  const handleActivateCode = async () => {
+    if (!activationCode.trim()) {
+      message.error('请输入激活码');
+      return;
+    }
+
+    try {
+      setActivating(true);
+      await activationAPI.applyCode(activationCode.trim());
+      message.success('激活码使用成功');
+      // 清空激活码输入
+      setActivationCode('');
+      // 刷新用户信息
+      await useAuthStore.getState().fetchUserInfo();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '激活码使用失败');
+    } finally {
+      setActivating(false);
+    }
+  };
+
   return (
     <div className={styles.appLayout}>
       {currentPage === 'app' ? (
@@ -302,22 +325,40 @@ const App: React.FC = () => {
                 {isAuthenticated && (
                   <div className={styles.userInfoBox}>
                     <div className={styles.userInfoContent}>
-                      <span style={{ marginRight: 16 }}>
-                        欢迎，{useAuthStore.getState().user?.username || '用户'}
-                      </span>
-                      <span style={{ marginRight: 16 }}>
-                        剩余额度: {useAuthStore.getState().user?.remaining_credits || 0}
-                      </span>
-                      <span style={{ marginRight: 16 }}>
-                        已使用: {useAuthStore.getState().user?.total_used || 0}
-                      </span>
-                      <Button 
-                        type="link" 
-                        size="small" 
-                        onClick={() => setChangePasswordModalVisible(true)}
-                      >
-                        修改密码
-                      </Button>
+                      <div>
+                        <span>
+                          欢迎，{useAuthStore.getState().user?.username || '用户'}
+                        </span>
+                        <span>
+                          剩余额度: {useAuthStore.getState().user?.remaining_credits || 0}
+                        </span>
+                        <span>
+                          已使用: {useAuthStore.getState().user?.total_used || 0}
+                        </span>
+                        <Button 
+                          type="link" 
+                          size="small" 
+                          onClick={() => setChangePasswordModalVisible(true)}
+                        >
+                          修改密码
+                        </Button>
+                      </div>
+                    </div>
+                    <div className={styles.userInfoContent}>
+                      <div>
+                        <Input
+                          placeholder="输入激活码"
+                          value={activationCode}
+                          onChange={(e) => setActivationCode(e.target.value)}
+                        />
+                        <Button
+                          type="primary"
+                          onClick={handleActivateCode}
+                          loading={activating}
+                        >
+                          激活
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 )}
