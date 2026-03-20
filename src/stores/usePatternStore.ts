@@ -67,6 +67,7 @@ export interface PatternState {
   selectBrand: (brandId: string) => void;
   selectSeries: (seriesId: string) => void;
   updateColorInPattern: (paletteId: string, sourceColorId: string, targetColorId: string, isBatch?: boolean) => void;
+  fetchSeriesColors: (seriesId: string) => Promise<void>;
 }
 
 export const usePatternStore = create<PatternState>((set, get) => ({
@@ -106,13 +107,13 @@ export const usePatternStore = create<PatternState>((set, get) => ({
 
   setError: (error) => set({ error }),
 
-  // 从后端获取完整层级数据（品牌 -> 系列 -> 颜色）
+  // 从后端获取品牌和系列层级数据（不包含颜色，快速加载）
   fetchHierarchy: async () => {
     try {
       const hierarchy: HierarchicalBrand[] = await paletteApi.getPublicHierarchy();
       
       if (hierarchy && hierarchy.length > 0) {
-        // 转换数据格式
+        // 转换数据格式，不加载颜色
         const brands: Brand[] = hierarchy.map(brand => ({
           id: brand.id,
           name: brand.name,
@@ -124,12 +125,7 @@ export const usePatternStore = create<PatternState>((set, get) => ({
             brandId: brand.id,
             brandName: brand.name,
             isDefault: series.is_default,
-            colors: series.colors.map(color => ({
-              id: color.id,
-              colorCode: color.color_code,
-              name: color.name,
-              hex: color.hex
-            }))
+            colors: []
           }))
         }));
 
@@ -161,6 +157,11 @@ export const usePatternStore = create<PatternState>((set, get) => ({
             },
             currentSeries: firstSeries || null
           }));
+          
+          // 加载第一个系列的颜色
+          if (firstSeries) {
+            get().fetchSeriesColors(firstSeries.id);
+          }
         } else if (!currentSeries && allSeries.length > 0) {
           // 保持品牌，选择该品牌的第一个系列
           const brandSeries = currentBrand?.series || allSeries;
@@ -173,12 +174,73 @@ export const usePatternStore = create<PatternState>((set, get) => ({
             },
             currentSeries: defaultSeriesInBrand || null
           }));
+          
+          // 加载默认系列的颜色
+          if (defaultSeriesInBrand) {
+            get().fetchSeriesColors(defaultSeriesInBrand.id);
+          }
         } else {
           set({ currentSeries: currentSeries || null });
+          // 加载当前系列的颜色
+          if (currentSeries) {
+            get().fetchSeriesColors(currentSeries.id);
+          }
         }
       }
     } catch (error) {
       console.error('Failed to fetch hierarchy:', error);
+    }
+  },
+
+  // 加载特定系列的颜色
+  fetchSeriesColors: async (seriesId: string) => {
+    try {
+      const colors = await paletteApi.getPublicSeriesColors(seriesId);
+      
+      set((state) => {
+        const updatedSeriesList = state.seriesList.map(series => {
+          if (series.id === seriesId) {
+            return {
+              ...series,
+              colors: colors.map((color: Color) => ({
+                id: color.id,
+                colorCode: color.color_code,
+                name: color.name,
+                hex: color.hex
+              }))
+            };
+          }
+          return series;
+        });
+        
+        const updatedBrandList = state.brandList.map(brand => ({
+          ...brand,
+          series: brand.series.map(series => {
+            if (series.id === seriesId) {
+              return {
+                ...series,
+                colors: colors.map((color: Color) => ({
+                  id: color.id,
+                  colorCode: color.color_code,
+                  name: color.name,
+                  hex: color.hex
+                }))
+              };
+            }
+            return series;
+          })
+        }));
+        
+        const currentSeries = updatedSeriesList.find(s => s.id === seriesId);
+        
+        return {
+          seriesList: updatedSeriesList,
+          brandList: updatedBrandList,
+          currentSeries: currentSeries || state.currentSeries
+        };
+      });
+    } catch (error) {
+      console.error('Failed to fetch series colors:', error);
     }
   },
 
@@ -199,6 +261,9 @@ export const usePatternStore = create<PatternState>((set, get) => ({
         },
         currentSeries: defaultSeries
       }));
+      
+      // 加载该系列的颜色
+      get().fetchSeriesColors(defaultSeries.id);
     } else {
       set((state) => ({
         params: {
@@ -225,6 +290,9 @@ export const usePatternStore = create<PatternState>((set, get) => ({
         },
         currentSeries: series
       }));
+      
+      // 加载该系列的颜色
+      get().fetchSeriesColors(seriesId);
     }
   },
 

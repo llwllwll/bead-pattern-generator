@@ -1,0 +1,420 @@
+# 今日修改记录 - 2026-03-20
+
+## 修改的文件
+
+### 1. e:\Workplace\web\src\stores\usePatternStore.ts
+
+**添加的代码（在 PatternState 接口中）：**
+```typescript
+fetchSeriesColors: (seriesId: string) => Promise<void>;
+```
+
+**修改的代码（在 fetchSeriesColors 方法中）：**
+```typescript
+// 修改前：
+colors: colors.map((color) => ({
+  id: color.id,
+  colorCode: color.color_code,
+  name: color.name,
+  hex: color.hex
+}))
+
+// 修改后：
+colors: colors.map((color: Color) => ({
+  id: color.id,
+  colorCode: color.color_code,
+  name: color.name,
+  hex: color.hex
+}))
+```
+
+**完整的 PatternState 接口：**
+```typescript
+export interface PatternState {
+  params: PatternParams;
+  brandList: Brand[];
+  seriesList: Series[];
+  currentSeries: Series | null;
+  patternCells: PatternCell[];
+  isProcessing: boolean;
+  error?: string;
+
+  setParams: (params: Partial<PatternParams>) => void;
+  setBrandList: (brands: Brand[]) => void;
+  setSeriesList: (series: Series[]) => void;
+  setCurrentSeries: (series: Series | null) => void;
+  setPatternCells: (cells: PatternCell[]) => void;
+  setProcessing: (val: boolean) => void;
+  setError: (msg?: string) => void;
+  fetchHierarchy: () => Promise<void>;
+  selectBrand: (brandId: string) => void;
+  selectSeries: (seriesId: string) => void;
+  updateColorInPattern: (paletteId: string, sourceColorId: string, targetColorId: string, isBatch?: boolean) => void;
+  fetchSeriesColors: (seriesId: string) => Promise<void>;
+}
+```
+
+---
+
+### 2. e:\Workplace\web\vite.config.ts
+
+**修改的代码：**
+```typescript
+// 修改前：
+proxy: {
+  '/api': {
+    target: 'http://127.0.0.1:8002',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path
+  }
+}
+
+// 修改后：
+proxy: {
+  '/api': {
+    target: 'http://127.0.0.1:8000',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path
+  }
+}
+```
+
+**完整的 vite.config.ts 文件：**
+```typescript
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react-swc';
+
+export default defineConfig({
+  plugins: [react()],
+  css: {
+    modules: {
+      localsConvention: 'camelCaseOnly'
+    }
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path
+      }
+    }
+  }
+});
+```
+
+---
+
+### 3. e:\Workplace\web\src\services\api.ts
+
+**添加的代码（在请求拦截器中）：**
+```typescript
+// 登录和注册请求不应该携带 token
+const isAuthAPI = config.url?.startsWith('/auth/login') || config.url?.startsWith('/auth/register') || config.url?.startsWith('/admin/login');
+
+if (isAuthAPI) {
+  return config;
+}
+```
+
+**完整的请求拦截器代码：**
+```typescript
+// Request interceptor - add auth token
+apiClient.interceptors.request.use(
+  (config) => {
+    const safeParseJson = <T,>(raw: string | null): T | null => {
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
+      }
+    };
+
+    const getPersistedAuthState = (): { accessToken?: string | null; adminToken?: string | null } | null => {
+      const persisted = safeParseJson<{ state?: any }>(localStorage.getItem('auth-storage'));
+      if (!persisted?.state) return null;
+      return {
+        accessToken: persisted.state.accessToken,
+        adminToken: persisted.state.adminToken
+      };
+    };
+
+    // 检查是否是管理员API (包括 /admin 和 /palettes 管理)
+    const isAdminAPI = config.url?.startsWith('/admin') || config.url?.startsWith('/palettes');
+    
+    // 登录和注册请求不应该携带 token
+    const isAuthAPI = config.url?.startsWith('/auth/login') || config.url?.startsWith('/auth/register') || config.url?.startsWith('/admin/login');
+    
+    if (isAuthAPI) {
+      return config;
+    }
+    
+    if (isAdminAPI) {
+      const adminToken =
+        localStorage.getItem('admin_access_token') ||
+        getPersistedAuthState()?.adminToken ||
+        null;
+      if (adminToken) {
+        config.headers.Authorization = `Bearer ${adminToken}`;
+      }
+    } else {
+      const token =
+        localStorage.getItem('access_token') ||
+        getPersistedAuthState()?.accessToken ||
+        null;
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+```
+
+---
+
+## 创建的文件（测试脚本）
+
+### 1. e:\Workplace\web\backend\check_users.py
+```python
+import asyncio
+from database import get_db
+from sqlalchemy import select
+from models import User
+
+async def check_users():
+    async for db in get_db():
+        result = await db.execute(select(User))
+        users = result.scalars().all()
+        print(f'Found {len(users)} users')
+        for u in users:
+            print(f'User: {u.username}, Phone: {u.phone}, Active: {u.is_active}')
+        break
+
+if __name__ == '__main__':
+    asyncio.run(check_users())
+```
+
+### 2. e:\Workplace\web\backend\test_login.py
+```python
+import asyncio
+import requests
+import json
+
+BASE_URL = "http://localhost:8000"
+
+async def test_login():
+    test_cases = [
+        {"phone": "13800138000", "password": "password123"},
+        {"phone": "13713713700", "password": "password123"},
+    ]
+
+    for credentials in test_cases:
+        print(f"\nTesting login with phone: {credentials['phone']}")
+        try:
+            response = requests.post(
+                f"{BASE_URL}/api/auth/login",
+                json=credentials,
+                headers={"Content-Type": "application/json"}
+            )
+            print(f"Status: {response.status_code}")
+            print(f"Response: {response.text}")
+        except Exception as e:
+            print(f"Error: {e}")
+
+if __name__ == '__main__':
+    asyncio.run(test_login())
+```
+
+### 3. e:\Workplace\web\backend\test_password.py
+```python
+import asyncio
+from database import get_db
+from sqlalchemy import select
+from models import User
+from auth import get_password_hash, verify_password
+
+async def test_password_verification():
+    async for db in get_db():
+        result = await db.execute(select(User).where(User.phone == "13800138000"))
+        user = result.scalar_one_or_none()
+
+        if user:
+            print(f"User found: {user.username}")
+            print(f"Phone: {user.phone}")
+            print(f"Is active: {user.is_active}")
+
+            # 测试密码验证
+            test_passwords = ["password123", "123456", "test"]
+            for pwd in test_passwords:
+                is_valid = verify_password(pwd, user.password_hash)
+                print(f"Password '{pwd}': {'Valid' if is_valid else 'Invalid'}")
+        else:
+            print("User not found")
+        break
+
+if __name__ == '__main__':
+    asyncio.run(test_password_verification())
+```
+
+### 4. e:\Workplace\web\backend\create_test_user.py
+```python
+import asyncio
+from database import get_db
+from sqlalchemy import select
+from models import User
+from auth import get_password_hash
+import uuid
+
+async def create_test_user():
+    async for db in get_db():
+        # 检查是否已存在
+        result = await db.execute(select(User).where(User.phone == "13900000000"))
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            print(f"User already exists: {existing.username}")
+            print(f"Phone: {existing.phone}")
+            print(f"Email: {existing.email}")
+        else:
+            # 创建新用户，使用唯一邮箱
+            unique_email = f"test{uuid.uuid4().hex[:8]}@example.com"
+            new_user = User(
+                username="testuser_new",
+                email=unique_email,
+                password_hash=get_password_hash("password123"),
+                phone="13900000000",
+                is_active=True,
+                remaining_credits=5
+            )
+            db.add(new_user)
+            await db.commit()
+            await db.refresh(new_user)
+            print(f"Created new user: {new_user.username}")
+            print(f"Phone: {new_user.phone}")
+            print(f"Email: {new_user.email}")
+            print(f"Password: password123")
+        break
+
+if __name__ == '__main__':
+    asyncio.run(create_test_user())
+```
+
+### 5. e:\Workplace\web\backend\check_user_password.py
+```python
+import asyncio
+from database import get_db
+from sqlalchemy import select
+from models import User
+from auth import get_password_hash, verify_password
+
+async def check_user_password():
+    async for db in get_db():
+        # 检查用户 13800138000
+        result = await db.execute(select(User).where(User.phone == "13800138000"))
+        user = result.scalar_one_or_none()
+
+        if user:
+            print(f"User found: {user.username}")
+            print(f"Phone: {user.phone}")
+            print(f"Is active: {user.is_active}")
+            print(f"Email: {user.email}")
+            print(f"Password hash: {user.password_hash[:50]}...")
+
+            # 测试密码验证
+            test_passwords = ["password123", "123456", "test", "password"]
+            for pwd in test_passwords:
+                is_valid = verify_password(pwd, user.password_hash)
+                print(f"Password '{pwd}': {'Valid' if is_valid else 'Invalid'}")
+
+            # 创建新密码哈希用于对比
+            new_hash = get_password_hash("123456")
+            print(f"\nNew hash for '123456': {new_hash[:50]}...")
+            print(f"Stored hash:           {user.password_hash[:50]}...")
+            print(f"Hashes match: {new_hash == user.password_hash}")
+        else:
+            print("User 13800138000 not found")
+
+        # 检查用户 13900000000
+        result2 = await db.execute(select(User).where(User.phone == "13900000000"))
+        user2 = result2.scalar_one_or_none()
+
+        if user2:
+            print(f"\n\nUser 13900000000 found: {user2.username}")
+            print(f"Phone: {user2.phone}")
+            print(f"Is active: {user2.is_active}")
+            print(f"Password hash: {user2.password_hash[:50]}...")
+
+            # 测试密码验证
+            is_valid = verify_password("password123", user2.password_hash)
+            print(f"Password 'password123': {'Valid' if is_valid else 'Invalid'}")
+        break
+
+if __name__ == '__main__':
+    asyncio.run(check_user_password())
+```
+
+### 6. e:\Workplace\web\backend\update_user_password.py
+```python
+import asyncio
+from database import get_db
+from sqlalchemy import select
+from models import User
+from auth import get_password_hash
+
+async def update_user_password():
+    async for db in get_db():
+        # 更新用户 13800138000 的密码为 123456
+        result = await db.execute(select(User).where(User.phone == "13800138000"))
+        user = result.scalar_one_or_none()
+
+        if user:
+            new_password_hash = get_password_hash("123456")
+            user.password_hash = new_password_hash
+            await db.commit()
+            print(f"Updated password for user: {user.username}")
+            print(f"Phone: {user.phone}")
+            print(f"New password: 123456")
+        else:
+            print("User 13800138000 not found")
+        break
+
+if __name__ == '__main__':
+    asyncio.run(update_user_password())
+```
+
+---
+
+## 修改原因
+
+1. **修复 TypeScript 错误**
+   - 问题：fetchSeriesColors 方法在实现中存在但接口中未声明
+   - 解决：在 PatternState 接口中添加方法声明
+
+2. **修复 Vite 代理配置**
+   - 问题：代理目标端口 8002 与后端实际端口 8000 不匹配
+   - 解决：将 target 改为 'http://127.0.0.1:8000'
+
+3. **修复登录 401 错误**
+   - 问题：登录请求携带了旧的 Authorization header
+   - 解决：添加 isAuthAPI 检查，登录和注册请求不携带 token
+
+---
+
+## 测试账号
+
+### 账号1（您的账号）
+- 手机号：13800138000
+- 密码：123456
+
+### 账号2（测试账号）
+- 手机号：13900000000
+- 密码：password123

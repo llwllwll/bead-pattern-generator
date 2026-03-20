@@ -37,6 +37,13 @@ apiClient.interceptors.request.use(
     // 检查是否是管理员API (包括 /admin 和 /palettes 管理)
     const isAdminAPI = config.url?.startsWith('/admin') || config.url?.startsWith('/palettes');
     
+    // 登录和注册请求不应该携带 token
+    const isAuthAPI = config.url?.startsWith('/auth/login') || config.url?.startsWith('/auth/register') || config.url?.startsWith('/admin/login');
+    
+    if (isAuthAPI) {
+      return config;
+    }
+    
     if (isAdminAPI) {
       const adminToken =
         localStorage.getItem('admin_access_token') ||
@@ -550,7 +557,7 @@ export const paletteApi = {
   
   // Get colors for a series
   getPublicSeriesColors: (seriesId: string) =>
-    apiClient.get(`/palettes/public/series/${seriesId}/colors`).then((res) => res.data),
+    apiClient.get(`/palettes/series/${seriesId}/colors`).then((res) => res.data),
   
   // Get full hierarchy (brand -> series -> color)
   getPublicHierarchy: () =>
